@@ -52,16 +52,19 @@ class UndeepvoDataloader(object):
 #            do_augment  = tf.random_uniform([], 0, 1)
 #            left_image, right_image = tf.cond(do_augment > 0.5, lambda: self.augment_image_pair(left_image, right_image), lambda: (left_image, right_image))
 
-            left_image_o.set_shape( [None, None, 3])
-            left_image_o.set_shape([None, None, 3])
 
+            left_image_o.set_shape( [self.params.height, self.params.width, 3])
+            right_image_o.set_shape([self.params.height, self.params.width, 3])
+            left_next_image_o.set_shape( [self.params.height, self.params.width, 3])
+            right_next_image_o.set_shape([self.params.height, self.params.width, 3])
+
+
+            print(left_image_o.shape)
             # capacity = min_after_dequeue + (num_threads + a small safety margin) * batch_size
             min_after_dequeue = 2048
             capacity = min_after_dequeue + 4 * params.batch_size
-            self.left_image_batch, self.right_image_batch, self.left_next_image_batch, self.right_next_image_batch 
-                        = tf.train.shuffle_batch([left_image_o, right_image_o, left_next_image_o, right_next_image_o],
-                        params.batch_size, capacity, min_after_dequeue, params.num_threads)
-
+            self.left_image_batch, self.right_image_batch, self.left_next_image_batch, self.right_next_image_batch = tf.train.shuffle_batch([left_image_o, right_image_o, left_next_image_o, right_next_image_o], params.batch_size, capacity, min_after_dequeue, params.num_threads)
+#            self.left_image_batch, self.right_image_batch = tf.train.shuffle_batch([left_image_o, right_image_o], params.batch_size, capacity, min_after_dequeue, params.num_threads)
         elif mode == 'test':
             self.left_image_batch = tf.stack([left_image_o,  tf.image.flip_left_right(left_image_o)],  0)
             self.left_image_batch.set_shape( [2, None, None, 3])
@@ -105,6 +108,6 @@ class UndeepvoDataloader(object):
             image  =  image[:crop_height,:,:]
 
         image  = tf.image.convert_image_dtype(image,  tf.float32)
-        image  = tf.image.resize_images(image,  [self.params.height, self.params.width], tf.image.ResizeMethod.AREA)
+#        image  = tf.image.resize_images(image,  [self.params.height, self.params.width], tf.image.ResizeMethod.AREA)
 
         return image

@@ -1,0 +1,12 @@
+%generating training txt file
+
+save_fid = fopen('kitti_train_files.txt', 'wt');
+fprintf(save_fid, 'sequences/00/ ');
+for iter=1:12
+    fprintf(save_fid, '%.12f ',P1(iter));
+end
+fprintf(save_fid, '\n');
+
+
+
+fclose(save_fid);

@@ -5,6 +5,7 @@ from collections import namedtuple
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
+from keras.layers import Conv2D, Conv2DTranspose, MaxPooling2D, concatenate, Cropping2D, Dense, Flatten
 
 from bilinear_sampler import *
 
@@ -93,70 +94,44 @@ class UndeepvoModel(object):
 
         return tf.clip_by_value((1 - SSIM) / 2, 0, 1)
 
-    def get_disparity_smoothness(self, disp, pyramid):
-        disp_gradients_x = [self.gradient_x(d) for d in disp]
-        disp_gradients_y = [self.gradient_y(d) for d in disp]
+    @staticmethod
+    def conv(input, channels, kernel_size, strides, activation='elu'):
 
-        image_gradients_x = [self.gradient_x(img) for img in pyramid]
-        image_gradients_y = [self.gradient_y(img) for img in pyramid]
+        return Conv2D(channels, kernel_size=kernel_size, strides=strides, padding='same', activation=activation)(input)
 
-        weights_x = [tf.exp(-tf.reduce_mean(tf.abs(g), 3, keep_dims=True)) for g in image_gradients_x]
-        weights_y = [tf.exp(-tf.reduce_mean(tf.abs(g), 3, keep_dims=True)) for g in image_gradients_y]
+    @staticmethod
+    def deconv(input, channels, kernel_size, scale):
 
-        smoothness_x = [disp_gradients_x[i] * weights_x[i] for i in range(4)]
-        smoothness_y = [disp_gradients_y[i] * weights_y[i] for i in range(4)]
-        return smoothness_x + smoothness_y
+        return Conv2DTranspose(channels, kernel_size=kernel_size, strides=scale, padding='same')(input)
+    
+    @staticmethod
+    def maxpool(input, kernel_size):
+        
+        return MaxPooling2D(pool_size=kernel_size, strides=2, padding='same', data_format=None)(input)
 
-    def get_disp(self, x):
-        disp = 0.3 * self.conv(x, 2, 3, 1, tf.nn.sigmoid)
-        return disp
+    def conv_block(self, input, channels, kernel_size):
+        conv1 = self.conv(input, channels, kernel_size, 1)
 
-    def conv(self, x, num_out_layers, kernel_size, stride, activation_fn=tf.nn.elu):
-        p = np.floor((kernel_size - 1) / 2).astype(np.int32)
-        p_x = tf.pad(x, [[0, 0], [p, p], [p, p], [0, 0]])
-        return slim.conv2d(p_x, num_out_layers, kernel_size, stride, 'VALID', activation_fn=activation_fn)
+        conv2 = self.conv(conv1, channels, kernel_size, 2)
 
-    def conv_block(self, x, num_out_layers, kernel_size):
-        conv1 = self.conv(x,     num_out_layers, kernel_size, 1)
-        conv2 = self.conv(conv1, num_out_layers, kernel_size, 2)
         return conv2
 
-    def maxpool(self, x, kernel_size):
-        p = np.floor((kernel_size - 1) / 2).astype(np.int32)
-        p_x = tf.pad(x, [[0, 0], [p, p], [p, p], [0, 0]])
-        return slim.max_pool2d(p_x, kernel_size)
+    def deconv_block(self, input, channels, kernel_size, skip):
+        deconv1 = self.deconv(input, channels, kernel_size, 2)
 
-    def resconv(self, x, num_layers, stride):
-        do_proj = tf.shape(x)[3] != num_layers or stride == 2
-        shortcut = []
-        conv1 = self.conv(x,         num_layers, 1, 1)
-        conv2 = self.conv(conv1,     num_layers, 3, stride)
-        conv3 = self.conv(conv2, 4 * num_layers, 1, 1, None)
-        if do_proj:
-            shortcut = self.conv(x, 4 * num_layers, 1, stride, None)
+        if skip is not None:
+            concat1 = concatenate([deconv1, skip], 3)
         else:
-            shortcut = x
-        return tf.nn.elu(conv3 + shortcut)
+            concat1 = deconv1
 
-    def resblock(self, x, num_layers, num_blocks):
-        out = x
-        for i in range(num_blocks - 1):
-            out = self.resconv(out, num_layers, 1)
-        out = self.resconv(out, num_layers, 2)
-        return out
+        iconv1 = self.conv(concat1, channels, kernel_size, 1)
 
-    def upconv(self, x, num_out_layers, kernel_size, scale):
-        upsample = self.upsample_nn(x, scale)
-        conv = self.conv(upsample, num_out_layers, kernel_size, 1)
-        return conv
-
-    def deconv(self, x, num_out_layers, kernel_size, scale):
-        p_x = tf.pad(x, [[0, 0], [1, 1], [1, 1], [0, 0]])
-        conv = slim.conv2d_transpose(p_x, num_out_layers, kernel_size, scale, 'SAME')
-        return conv[:,3:-1,3:-1,:]
+        return iconv1
 
     def build_pose_architecture(self,in_image,in_image_next):
-        input = concatenate([in_image, in_image_next], axis=3)
+        in_image_resized  = tf.image.resize_images(in_image,  [384, 1280], tf.image.ResizeMethod.AREA)
+        in_image_next_resized  = tf.image.resize_images(in_image_next,  [384, 1280], tf.image.ResizeMethod.AREA)
+        input = concatenate([in_image_resized, in_image_next_resized], axis=3)
 
         conv1 = self.conv(input, 16, 7, 2, activation='relu')
 
@@ -168,13 +143,15 @@ class UndeepvoModel(object):
 
         conv5 = self.conv(conv4, 256, 3, 2, activation='relu')
 
-        conv6 = self.conv(conv5, 512, 3, 2, activation='relu')
+        conv6 = self.conv(conv5, 256, 3, 2, activation='relu')
+
+        conv7 = self.conv(conv6, 512, 3, 2, activation='relu')
 
         flat1 = Flatten()(conv6)
 
         # translation
 
-        fc1_tran = Dense(512, input_shape=(8192,))(flat1)
+        fc1_tran = Dense(512, input_shape=(15360,))(flat1)
 
         fc2_tran = Dense(512, input_shape=(512,))(fc1_tran)
 
@@ -184,7 +161,7 @@ class UndeepvoModel(object):
 
         # rotation
 
-        fc1_rot = Dense(512, input_shape=(512,))(flat1)
+        fc1_rot = Dense(512, input_shape=(15360,))(flat1)
 
         fc2_rot = Dense(512, input_shape=(512,))(fc1_rot)
 
@@ -307,7 +284,7 @@ class UndeepvoModel(object):
             # GEOMETRIC REGISTRATION
 
             # TOTAL LOSS
-            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss#+ self.params.disp_gradient_loss_weight * self.disp_gradient_loss + self.params.lr_loss_weight * self.lr_loss
+            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss
 
     def build_summaries(self):
         # SUMMARIES
