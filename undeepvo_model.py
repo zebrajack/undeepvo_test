@@ -6,11 +6,13 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 from keras.layers import Conv2D, Conv2DTranspose, MaxPooling2D, concatenate, Cropping2D, Dense, Flatten
+from layers import depth_to_disparity, disparity_difference, expand_dims, spatial_transformation
 
 from bilinear_sampler import *
 
 undeepvo_parameters = namedtuple('parameters',
                         'height, width, '
+                        'baseline, focal_length, '
                         'batch_size, '
                         'num_threads, '
                         'num_epochs, '
@@ -102,8 +104,10 @@ class UndeepvoModel(object):
     @staticmethod
     def deconv(input, channels, kernel_size, scale):
 
-        return Conv2DTranspose(channels, kernel_size=kernel_size, strides=scale, padding='same')(input)
-    
+        output =  Conv2DTranspose(channels, kernel_size=kernel_size, strides=scale, padding='same')(input)
+        output_shape = output._keras_shape
+        output.set_shape(output_shape)
+        return output
     @staticmethod
     def maxpool(input, kernel_size):
         
@@ -117,9 +121,14 @@ class UndeepvoModel(object):
         return conv2
 
     def deconv_block(self, input, channels, kernel_size, skip):
-        deconv1 = self.deconv(input, channels, kernel_size, 2)
 
+        deconv1 = self.deconv(input, channels, kernel_size, 2)
         if skip is not None:
+            s = skip.shape
+            if  s[1] % 2 != 0:
+                deconv1 = deconv1[:,:-1,:,:]
+            if  s[2] % 2 != 0:
+                deconv1 = deconv1[:,:,:-1,:]
             concat1 = concatenate([deconv1, skip], 3)
         else:
             concat1 = deconv1
@@ -132,6 +141,7 @@ class UndeepvoModel(object):
         in_image_resized  = tf.image.resize_images(in_image,  [384, 1280], tf.image.ResizeMethod.AREA)
         in_image_next_resized  = tf.image.resize_images(in_image_next,  [384, 1280], tf.image.ResizeMethod.AREA)
         input = concatenate([in_image_resized, in_image_next_resized], axis=3)
+#        input = concatenate([in_image, in_image_next], axis=3)
 
         conv1 = self.conv(input, 16, 7, 2, activation='relu')
 
@@ -147,7 +157,7 @@ class UndeepvoModel(object):
 
         conv7 = self.conv(conv6, 512, 3, 2, activation='relu')
 
-        flat1 = Flatten()(conv6)
+        flat1 = Flatten()(conv7)
 
         # translation
 
@@ -212,9 +222,13 @@ class UndeepvoModel(object):
 
         deconv2 = self.deconv_block(deconv3, 32, 3, skip1)
 
-        deconv1 = self.deconv_block(deconv2, 16, 3, None)
+        deconv1 = self.deconv_block(deconv2, 1, 3, None)
 
-#        self.depthmap = self.get_depth(deconv1)
+        s = in_image.shape
+        if  s[1] % 2 != 0:
+            deconv1 = deconv1[:,:-1,:,:]
+        if  s[2] % 2 != 0:
+            deconv1 = deconv1[:,:,:-1,:]
         return deconv1
 
     def build_model(self):
@@ -231,53 +245,72 @@ class UndeepvoModel(object):
             return
 
         # generate disparities
-        self.disparity_left = depth_to_disparity(self.depthmap_left, self.baseline, self.focal_length, 1,
+        print(self.depthmap_left.shape)
+        self.disparity_left = depth_to_disparity(self.depthmap_left, self.params.baseline, self.params.focal_length, 1,
                                                  'disparity_left')
-        self.disparity_right = depth_to_disparity(self.depthmap_right, self.baseline, self.focal_length, 1,
+        print(self.disparity_left.shape)
+        self.disparity_right = depth_to_disparity(self.depthmap_right, self.params.baseline, self.params.focal_length, 1,
                                                   'disparity_right')
 
         # generate estimates of left and right images
-        self.left_est = spatial_transformation([self.right, self.disparity_right], -1, 'left_est')
-        self.right_est = spatial_transformation([self.left, self.disparity_left], 1, 'right_est')
+#        self.left_est = spatial_transformation([self.right, self.disparity_right], -1, 'left_est')
+#        self.right_est = spatial_transformation([self.left, self.disparity_left], 1, 'right_est')
 
+#        self.disparity_left_three  = tf.tile(self.disparity_left, [1,1,1,3])
+        self.left_est  = self.generate_image_left(self.right, self.disparity_left)
+#        self.disparity_right_three  = tf.tile(self.disparity_right, [1,1,1,3])
+        self.right_est = self.generate_image_right(self.left, self.disparity_right)
+        
+        print(self.right.shape)
+        print(self.disparity_left.shape)
         # generate left - right consistency
 
-        self.right_to_left_disparity = spatial_transformation([self.disparity_right, self.disparity_right], -1,
-                                                              'r2l_disparity')
-        self.left_to_right_disparity = spatial_transformation([self.disparity_left, self.disparity_left], 1,
-                                                              'l2r_disparity')
-        self.disparity_diff_left = disparity_difference([self.disparity_left, self.right_to_left_disparity],
-                                                        'disp_diff_left')
-        self.disparity_diff_right = disparity_difference([self.disparity_right, self.left_to_right_disparity],
-                                                         'disp_diff_right')
+#        self.right_to_left_disparity = spatial_transformation([self.disparity_right, self.disparity_right], -1,
+#                                                              'r2l_disparity')
+#        self.left_to_right_disparity = spatial_transformation([self.disparity_left, self.disparity_left], 1,
+#                                                              'l2r_disparity')
+        self.right_to_left_disparity = self.generate_image_left(self.disparity_right, self.disparity_left)
+        self.left_to_right_disparity = self.generate_image_right(self.disparity_left, self.disparity_right)
+#        self.disparity_diff_left = disparity_difference([self.disparity_left, self.right_to_left_disparity],
+#                                                        'disp_diff_left')
+#        self.disparity_diff_right = disparity_difference([self.disparity_right, self.left_to_right_disparity],
+#                                                         'disp_diff_right')
 
     def build_losses(self):
         with tf.variable_scope('losses', reuse=self.reuse_variables):
             # IMAGE RECONSTRUCTION
             # L1
-            self.l1_left = tf.abs( self.left_est - self.left)
+            self.l1_left = [tf.abs( self.left_est - self.left)]
             self.l1_loss_left  = [tf.reduce_mean(l) for l in self.l1_left]
-            self.l1_right = tf.abs(self.right_est - self.right)
+            self.l1_right = [tf.abs(self.right_est - self.right)]
             self.l1_loss_right  = [tf.reduce_mean(l) for l in self.l1_right]
 
             # SSIM
-            self.ssim_left = self.SSIM( self.left_est,  self.left)
+            self.ssim_left = [self.SSIM( self.left_est,  self.left)]
             self.ssim_loss_left  = [tf.reduce_mean(s) for s in self.ssim_left] 
-            self.ssim_right = self.SSIM(self.right_est, self.right)
+            self.ssim_right = [self.SSIM(self.right_est, self.right)]
             self.ssim_loss_right = [tf.reduce_mean(s) for s in self.ssim_right]
 
-            # PHOTOMETRIC CONSISTENCY 
-            self.image_loss_left  = self.params.alpha_image_loss * self.ssim_loss_left  + (1 - self.params.alpha_image_loss) * self.l1_loss_left
-            self.image_loss_right = self.params.alpha_image_loss * self.ssim_loss_right + (1 - self.params.alpha_image_loss) * self.l1_loss_right         
-            self.image_loss = tf.add_n(self.image_loss_left + self.image_loss_right)
+            # DISPARITY
+            self.l1_disp_left = [tf.abs( self.disparity_left - self.right_to_left_disparity)]
+            self.l1_loss_disp_left  = [tf.reduce_mean(l) for l in self.l1_disp_left]
+            self.l1_disp_right = [tf.abs( self.disparity_right - self.left_to_right_disparity)]
+            self.l1_loss_disp_right  = [tf.reduce_mean(l) for l in self.l1_disp_right]
+
+            # PHOTOMETRIC CONSISTENCY
+            self.image_loss_left  = self.params.alpha_image_loss * self.ssim_loss_left[0]  + (1 - self.params.alpha_image_loss) * self.l1_loss_left[0]
+            self.image_loss_right = self.params.alpha_image_loss * self.ssim_loss_right[0] + (1 - self.params.alpha_image_loss) * self.l1_loss_right[0]         
+            self.image_loss = self.image_loss_left + self.image_loss_right
 
             # DISPARITY CONSISTENCY
-            self.disp_loss = tf.add_n(self.disparity_diff_left + self.disparity_diff_right)
+            self.disp_loss = self.l1_loss_disp_left[0] + self.l1_loss_disp_right[0]
 
             # POSE CONSISTENCY
-            self.l1_translation_loss = tf.abs( self.translation_left, self.translation_right)
-            self.l1_rotation_loss = tf.abs( self.rotation_left, self.rotation_right)
-            self.pose_loss = tf.add_n(self.l1_translation_loss+self.l1_rotation_loss)
+            self.l1_translation = [tf.abs( self.translation_left - self.translation_right)]
+            self.l1_translation_loss = [tf.reduce_mean(l) for l in self.l1_translation]
+            self.l1_rotation = [tf.abs( self.rotation_left - self.rotation_right)]
+            self.l1_rotation_loss = [tf.reduce_mean(l) for l in self.l1_rotation]
+            self.pose_loss = self.l1_translation_loss[0] + self.l1_rotation_loss[0]
 
             # PHOTOMETRIC REGISTRATION
 
@@ -291,7 +324,7 @@ class UndeepvoModel(object):
         with tf.device('/cpu:0'):
             tf.summary.scalar('image_loss', self.image_loss, collections=self.model_collection)
             tf.summary.scalar('disp_loss', self.disp_loss, collections=self.model_collection)
-            tf.summary.scalar('disp_loss', self.pose_loss, collections=self.model_collection)
+            tf.summary.scalar('pose_loss', self.pose_loss, collections=self.model_collection)
             
 
             if self.params.full_summary:
