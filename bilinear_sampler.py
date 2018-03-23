@@ -55,7 +55,7 @@ def bilinear_sampler_1d_h(input_images, x_offset, wrap_mode='border', name='bili
             idx_l = base_y0 + x0
             idx_r = base_y0 + x1
 
-            im_flat = tf.reshape(im, tf.stack([-1, _num_channels]))
+            im_flat = tf.reshape(im, [-1, _num_channels])
 
             pix_l = tf.gather(im_flat, idx_l)
             pix_r = tf.gather(im_flat, idx_r)
@@ -85,14 +85,14 @@ def bilinear_sampler_1d_h(input_images, x_offset, wrap_mode='border', name='bili
             input_transformed = _interpolate(input_images, x_t_flat, y_t_flat)
 
             output = tf.reshape(
-                input_transformed, tf.stack([_num_batch, _height, _width, _num_channels]))
+                input_transformed, [_num_batch, _height, _width, _num_channels])
             return output
 
     with tf.variable_scope(name):
-        _num_batch    = tf.shape(input_images)[0]
-        _height       = tf.shape(input_images)[1]
-        _width        = tf.shape(input_images)[2]
-        _num_channels = tf.shape(input_images)[3]
+        _num_batch    = input_images.shape[0]
+        _height       = input_images.shape[1]
+        _width        = input_images.shape[2]
+        _num_channels = input_images.shape[3]
 
         _height_f = tf.cast(_height, tf.float32)
         _width_f  = tf.cast(_width,  tf.float32)

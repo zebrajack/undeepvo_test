@@ -244,7 +244,6 @@ class UndeepvoModel(object):
             # L1
             self.l1_left = tf.reduce_mean(tf.abs( self.left_est - self.left))
             self.l1_right = tf.reduce_mean(tf.abs(self.right_est - self.right))
-
             # SSIM
             self.ssim_left = tf.reduce_mean(self.SSIM( self.left_est,  self.left))
             self.ssim_right = tf.reduce_mean(self.SSIM(self.right_est, self.right))
