@@ -53,13 +53,13 @@ class UndeepvoDataloader(object):
 #            left_image, right_image = tf.cond(do_augment > 0.5, lambda: self.augment_image_pair(left_image, right_image), lambda: (left_image, right_image))
 
 
-            left_image_o.set_shape( [self.params.height, self.params.width, 3])
-            right_image_o.set_shape([self.params.height, self.params.width, 3])
-            left_next_image_o.set_shape( [self.params.height, self.params.width, 3])
-            right_next_image_o.set_shape([self.params.height, self.params.width, 3])
+            left_image_o.set_shape( [self.new_height, self.new_width, 3])
+            right_image_o.set_shape([self.new_height, self.new_width, 3])
+            left_next_image_o.set_shape( [self.new_height, self.new_width, 3])
+            right_next_image_o.set_shape([self.new_height, self.new_width, 3])
 
 
-            print(left_image_o.shape)
+#            print(left_image_o.shape)
             # capacity = min_after_dequeue + (num_threads + a small safety margin) * batch_size
             min_after_dequeue = 2048
             capacity = min_after_dequeue + 4 * params.batch_size
@@ -107,7 +107,9 @@ class UndeepvoDataloader(object):
             crop_height = (o_height * 4) // 5
             image  =  image[:crop_height,:,:]
 
-        image  = tf.image.convert_image_dtype(image,  tf.float32)
-#        image  = tf.image.resize_images(image,  [self.params.height, self.params.width], tf.image.ResizeMethod.AREA)
+        image  = tf.image.convert_image_dtype(image,  tf.float32) 
+        self.new_width = int(float(self.params.width)*self.params.resize_ratio)
+        self.new_height = int(float(self.params.height)*self.params.resize_ratio)
+        image  = tf.image.resize_images(image,  [self.new_height, self.new_width], tf.image.ResizeMethod.AREA)
 
         return image

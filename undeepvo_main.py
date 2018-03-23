@@ -24,8 +24,9 @@ parser.add_argument('--model_name',                type=str,   help='model name'
 parser.add_argument('--dataset',                   type=str,   help='dataset to train on, kitti, or cityscapes', default='kitti')
 parser.add_argument('--data_path',                 type=str,   help='path to the data', required=True)
 parser.add_argument('--filenames_file',            type=str,   help='path to the filenames text file', required=True)
-parser.add_argument('--input_height',              type=int,   help='input height', default=384)
-parser.add_argument('--input_width',               type=int,   help='input width', default=1280)
+parser.add_argument('--input_height',              type=int,   help='input height', default=376)
+parser.add_argument('--input_width',               type=int,   help='input width', default=1241)
+parser.add_argument('--resize_ratio',              type=float, help='resize ratio', default=0.5)
 parser.add_argument('--baseline',                  type=float, help='stereo baseline', default=0.54)
 parser.add_argument('--focal_length',              type=float, help='focal length', default=718.856)
 parser.add_argument('--batch_size',                type=int,   help='batch size', default=8)
@@ -179,7 +180,7 @@ def test(params):
     left  = dataloader.left_image_batch
     right = dataloader.right_image_batch
 
-    model = MonodepthModel(params, args.mode, left, right)
+    model = UndeepvoModel(params, args.mode, left, right)
 
     # SESSION
     config = tf.ConfigProto(allow_soft_placement=True)
@@ -228,6 +229,7 @@ def main(_):
     params = undeepvo_parameters(
         height=args.input_height,
         width=args.input_width,
+        resize_ratio=args.resize_ratio,
         baseline=args.baseline,
         focal_length=args.focal_length,
         batch_size=args.batch_size,
