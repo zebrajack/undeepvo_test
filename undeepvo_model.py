@@ -47,31 +47,6 @@ class UndeepvoModel(object):
         self.build_losses()
         self.build_summaries()     
 
-    def gradient_x(self, img):
-        gx = img[:,:,:-1,:] - img[:,:,1:,:]
-        return gx
-
-    def gradient_y(self, img):
-        gy = img[:,:-1,:,:] - img[:,1:,:,:]
-        return gy
-
-    def upsample_nn(self, x, ratio):
-        s = tf.shape(x)
-        h = s[1]
-        w = s[2]
-        return tf.image.resize_nearest_neighbor(x, [h * ratio, w * ratio])
-
-    def scale_pyramid(self, img, num_scales):
-        scaled_imgs = [img]
-        s = tf.shape(img)
-        h = s[1]
-        w = s[2]
-        for i in range(num_scales - 1):
-            ratio = 2 ** (i + 1)
-            nh = h // ratio
-            nw = w // ratio
-            scaled_imgs.append(tf.image.resize_area(img, [nh, nw]))
-        return scaled_imgs
 
     def generate_image_left(self, img, disp):
         return bilinear_sampler_1d_h(img, -disp)
@@ -96,6 +71,10 @@ class UndeepvoModel(object):
         SSIM = SSIM_n / SSIM_d
 
         return tf.clip_by_value((1 - SSIM) / 2, 0, 1)
+
+    def get_disp(self, x):
+        disp = 0.3 * self.conv(x, 1, 3, 1, activation='sigmoid')
+        return disp
 
     @staticmethod
     def conv(input, channels, kernel_size, strides, activation='elu'):
@@ -229,7 +208,9 @@ class UndeepvoModel(object):
             deconv1 = deconv1[:,:-1,:,:]
         if  s[2] % 2 != 0:
             deconv1 = deconv1[:,:,:-1,:]
-        return deconv1
+#        return deconv1
+        disp = self.get_disp(deconv1)
+        return disp
 
     def build_model(self):
         with slim.arg_scope([slim.conv2d, slim.conv2d_transpose], activation_fn=tf.nn.elu):
@@ -265,17 +246,17 @@ class UndeepvoModel(object):
             self.l1_right = tf.reduce_mean(tf.abs(self.right_est - self.right))
 
             # SSIM
-            self.ssim_left = [self.SSIM( self.left_est,  self.left)]
-            self.ssim_right = [self.SSIM(self.right_est, self.right)]
+            self.ssim_left = tf.reduce_mean(self.SSIM( self.left_est,  self.left))
+            self.ssim_right = tf.reduce_mean(self.SSIM(self.right_est, self.right))
+
+            # PHOTOMETRIC CONSISTENCY
+            self.image_loss_left  = self.params.alpha_image_loss * self.ssim_left  + (1 - self.params.alpha_image_loss) * self.l1_left
+            self.image_loss_right = self.params.alpha_image_loss * self.ssim_right + (1 - self.params.alpha_image_loss) * self.l1_right        
+            self.image_loss = self.image_loss_left + self.image_loss_right
 
             # DISPARITY
             self.l1_disp_left = tf.reduce_mean(tf.abs( self.disparity_left - self.right_to_left_disparity))
             self.l1_disp_right = tf.reduce_mean(tf.abs( self.disparity_right - self.left_to_right_disparity))
-
-            # PHOTOMETRIC CONSISTENCY
-            self.image_loss_left  = self.params.alpha_image_loss * self.ssim_loss_left[0]  + (1 - self.params.alpha_image_loss) * self.l1_loss_left[0]
-            self.image_loss_right = self.params.alpha_image_loss * self.ssim_loss_right[0] + (1 - self.params.alpha_image_loss) * self.l1_loss_right[0]         
-            self.image_loss = self.image_loss_left + self.image_loss_right
 
             # DISPARITY CONSISTENCY
             self.disp_loss = self.l1_disp_left + self.l1_disp_right
@@ -283,14 +264,14 @@ class UndeepvoModel(object):
             # POSE CONSISTENCY
             self.l1_translation = tf.reduce_mean(tf.abs( self.translation_left - self.translation_right))
             self.l1_rotation = tf.reduce_mean(tf.abs( self.rotation_left - self.rotation_right))
-            self.pose_loss = self.l1_translation_loss[0] + self.l1_rotation_loss[0]
+            self.pose_loss = self.l1_translation + self.l1_rotation
 
             # PHOTOMETRIC REGISTRATION
 
             # GEOMETRIC REGISTRATION
 
             # TOTAL LOSS
-            self.total_loss = self.image_loss + self.pose_loss
+            self.total_loss = self.image_loss + self.disp_loss+ self.pose_loss
 #            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss
 
     def build_summaries(self):
