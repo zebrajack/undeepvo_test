@@ -1,23 +1,12 @@
-# Copyright 2016 The TensorFlow Authors. All Rights Reserved.
-# Copyright 2017 Modifications Clement Godard.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-
 from __future__ import absolute_import, division, print_function
 import tensorflow as tf
+from keras.layers import Lambda
 
-def bilinear_sampler_1d_h(input_images, x_offset, wrap_mode='border', name='bilinear_sampler', **kwargs):
+def projective_transformer(input_images, focal_length, c0, c1, depthmap, rotation, translation, wrap_mode='border', name='projective_transformer', **kwargs):
+    def output_shape(input_shape):
+
+        return input_shape[0]
+
     def _repeat(x, n_repeats):
         with tf.variable_scope('_repeat'):
             rep = tf.tile(tf.expand_dims(x, 1), [1, n_repeats])
@@ -65,7 +54,7 @@ def bilinear_sampler_1d_h(input_images, x_offset, wrap_mode='border', name='bili
 
             return weight_l * pix_l + weight_r * pix_r
 
-    def _transform(input_images, x_offset):
+    def _transform(input_images, focal_length, c0, c1, depthmap, rotation, translation):
         with tf.variable_scope('transform'):
             # grid of (x_t, y_t, 1), eq (1) in ref [1]
             x_t, y_t = tf.meshgrid(tf.linspace(0.0,   _width_f - 1.0,  _width),
@@ -80,7 +69,17 @@ def bilinear_sampler_1d_h(input_images, x_offset, wrap_mode='border', name='bili
             x_t_flat = tf.reshape(x_t_flat, [-1])
             y_t_flat = tf.reshape(y_t_flat, [-1])
 
-            x_t_flat = x_t_flat + tf.reshape(x_offset, [-1]) #* _width_f
+#            x_t_flat = x_t_flat + tf.reshape(x_offset, [-1]) * _width_f
+
+            x_unproject = Lambda(lambda x: x[1]*(x[0]-c0)/focal_length, output_shape=output_shape)([x_t_flat, depthmap])
+            y_unproject = Lambda(lambda x: x[1]*(x[0]-c1)/focal_length, output_shape=output_shape)([y_t_flat, depthmap])
+
+            x_transformed = Lambda(lambda x: r11*x[0]+r12*x[1]+r13*x[3]+t1, output_shape=output_shape)([x_unproject,y_unproject,depthmap])
+            y_transformed = Lambda(lambda x: r21*x[0]+r22*x[1]+r23*x[3]+t2, output_shape=output_shape)([x_unproject,y_unproject,depthmap])
+            z_transformed = Lambda(lambda x: r31*x[0]+r32*x[1]+r33*x[3]+t3, output_shape=output_shape)([x_unproject,y_unproject,depthmap])
+
+            x_t_flat = Lambda(lambda x: c0+focal_length*x[0]/x[1], output_shape=output_shape)([x_transformed,z_transformed])
+            y_t_flat = Lambda(lambda x: c1+focal_length*x[0]/x[1], output_shape=output_shape)([y_transformed,z_transformed])      
 
             input_transformed = _interpolate(input_images, x_t_flat, y_t_flat)
 
@@ -99,5 +98,5 @@ def bilinear_sampler_1d_h(input_images, x_offset, wrap_mode='border', name='bili
 
         _wrap_mode = wrap_mode
 
-        output = _transform(input_images, x_offset)
+        output = _transform(input_images, focal_length, c0, c1, depthmap, rotation, translation)
         return output

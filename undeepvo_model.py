@@ -9,11 +9,12 @@ from keras.layers import Conv2D, Conv2DTranspose, MaxPooling2D, concatenate, Cro
 from layers import depth_to_disparity, disparity_difference, expand_dims, spatial_transformation
 
 from bilinear_sampler import *
+from projective_transformer import *
 
 undeepvo_parameters = namedtuple('parameters',
                         'height, width, '
                         'resize_ratio, '
-                        'baseline, focal_length, '
+                        'baseline, focal_length, c0, c1, '
                         'batch_size, '
                         'num_threads, '
                         'num_epochs, '
@@ -47,6 +48,8 @@ class UndeepvoModel(object):
         self.build_losses()
         self.build_summaries()     
 
+#    def generate_image(self, img_next, depth, translation, rotation):
+#        return 0
 
     def generate_image_left(self, img, disp):
         return bilinear_sampler_1d_h(img, -disp)
@@ -72,8 +75,8 @@ class UndeepvoModel(object):
 
         return tf.clip_by_value((1 - SSIM) / 2, 0, 1)
 
-    def get_disp(self, x):
-        disp = 0.3 * self.conv(x, 1, 3, 1, activation='sigmoid')
+    def get_depth(self, x):
+        disp = 100.0 * self.conv(x, 1, 3, 1, activation='sigmoid')
         return disp
 
     @staticmethod
@@ -201,7 +204,7 @@ class UndeepvoModel(object):
 
         deconv2 = self.deconv_block(deconv3, 32, 3, skip1)
 
-        deconv1 = self.deconv_block(deconv2, 1, 3, None)
+        deconv1 = self.deconv_block(deconv2, 16, 3, None)
 
         s = in_image.shape
         if  s[1] % 2 != 0:
@@ -209,8 +212,8 @@ class UndeepvoModel(object):
         if  s[2] % 2 != 0:
             deconv1 = deconv1[:,:,:-1,:]
 #        return deconv1
-        disp = self.get_disp(deconv1)
-        return disp
+        depth = self.get_depth(deconv1)
+        return depth
 
     def build_model(self):
         with slim.arg_scope([slim.conv2d, slim.conv2d_transpose], activation_fn=tf.nn.elu):
@@ -230,17 +233,21 @@ class UndeepvoModel(object):
         self.disparity_right = depth_to_disparity(self.depthmap_right, self.params.baseline, self.params.focal_length*self.params.resize_ratio, 1, 'disparity_right')
 
         # generate estimates of left and right images
-        self.left_est  = self.generate_image_left(self.right, self.disparity_left)
-        self.right_est = self.generate_image_right(self.left, self.disparity_right)
-        
-        # generate left - right consistency
-        self.right_to_left_disparity = self.generate_image_left(self.disparity_right, self.disparity_left)
-        self.left_to_right_disparity = self.generate_image_right(self.disparity_left, self.disparity_right)
+        self.left_est  = self.generate_image_left(self.right, self.disparity_right)
+        self.right_est = self.generate_image_right(self.left, self.disparity_left)
+#        self.left_est = spatial_transformation([self.right, self.disparity_right], -1, 'left_est')
+#        self.right_est = spatial_transformation([self.left, self.disparity_left], 1, 'right_est')
 
+        # generate left - right consistency
+        self.right_to_left_disparity = self.generate_image_left(self.disparity_right, self.disparity_right)
+        self.left_to_right_disparity = self.generate_image_right(self.disparity_left, self.disparity_left)
+
+        #generate k+1 th image
+#        self.left_next_est = projective_transformer(self.left, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left, self.rotation_left, self.translation_left)
 
     def build_losses(self):
         with tf.variable_scope('losses', reuse=self.reuse_variables):
-            # IMAGE RECONSTRUCTION
+            # IMAGE DIFF
             # L1
             self.l1_left = tf.reduce_mean(tf.abs( self.left_est - self.left))
             self.l1_right = tf.reduce_mean(tf.abs(self.right_est - self.right))
@@ -248,37 +255,40 @@ class UndeepvoModel(object):
             self.ssim_left = tf.reduce_mean(self.SSIM( self.left_est,  self.left))
             self.ssim_right = tf.reduce_mean(self.SSIM(self.right_est, self.right))
 
-            # PHOTOMETRIC CONSISTENCY
+            # DISPARITY DIFF
+            self.l1_disp_left = tf.reduce_mean(tf.abs( self.disparity_left - self.right_to_left_disparity))
+            self.l1_disp_right = tf.reduce_mean(tf.abs( self.disparity_right - self.left_to_right_disparity))
+
+            # PHOTOMETRIC CONSISTENCY (spatial loss)
             self.image_loss_left  = self.params.alpha_image_loss * self.ssim_left  + (1 - self.params.alpha_image_loss) * self.l1_left
             self.image_loss_right = self.params.alpha_image_loss * self.ssim_right + (1 - self.params.alpha_image_loss) * self.l1_right        
             self.image_loss = self.image_loss_left + self.image_loss_right
 
-            # DISPARITY
-            self.l1_disp_left = tf.reduce_mean(tf.abs( self.disparity_left - self.right_to_left_disparity))
-            self.l1_disp_right = tf.reduce_mean(tf.abs( self.disparity_right - self.left_to_right_disparity))
-
             # DISPARITY CONSISTENCY
             self.disp_loss = self.l1_disp_left + self.l1_disp_right
 
-            # POSE CONSISTENCY
+            # POSE CONSISTENCY 
             self.l1_translation = tf.reduce_mean(tf.abs( self.translation_left - self.translation_right))
             self.l1_rotation = tf.reduce_mean(tf.abs( self.rotation_left - self.rotation_right))
             self.pose_loss = self.l1_translation + self.l1_rotation
 
-            # PHOTOMETRIC REGISTRATION
-
-            # GEOMETRIC REGISTRATION
-
+            # PHOTOMETRIC REGISTRATION (temporal loss)
+#            # L1
+#            self.l1_left_temporal = tf.reduce_mean(tf.abs( self.left_next_est - self.left_next))
+#            # SSIM
+#            self.ssim_left_temporal = tf.reduce_mean(self.SSIM( self.left_next_est,  self.left_next))
+#            self.image_loss_temporal  = self.params.alpha_image_loss * self.ssim_left_temporal  + (1 - self.params.alpha_image_loss) * self.l1_left_temporal
+            
             # TOTAL LOSS
-            self.total_loss = self.image_loss + self.disp_loss+ self.pose_loss
+            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss # + self.image_loss_temporal
 #            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss
 
     def build_summaries(self):
         # SUMMARIES
         with tf.device('/cpu:0'):
-#            tf.summary.scalar('image_loss', self.image_loss, collections=self.model_collection)
+            tf.summary.scalar('image_loss', self.image_loss, collections=self.model_collection)
 #            tf.summary.scalar('disp_loss', self.disp_loss, collections=self.model_collection)
-#            tf.summary.scalar('pose_loss', self.pose_loss, collections=self.model_collection)
+            tf.summary.scalar('pose_loss', self.pose_loss, collections=self.model_collection)
             
 
             if self.params.full_summary:

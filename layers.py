@@ -26,11 +26,12 @@ def depth_to_disparity(inputs, baseline, focal_length, width, name):
     def output_shape(input_shape):
         return input_shape
 
-    return Lambda(lambda x: width * baseline * focal_length / x, output_shape=output_shape, name=name)(inputs)
-
+#    return Lambda(lambda x: width * baseline * focal_length / x, output_shape=output_shape, name=name)(inputs)
+    return Lambda(lambda x: baseline * focal_length / x, output_shape=output_shape, name=name)(inputs)
 
 def disparity_difference(disparities, name):
     def output_shape(input_shape):
         return input_shape
 
     return Lambda(lambda x: x[0] - x[1], output_shape=output_shape, name=name)(disparities)
+

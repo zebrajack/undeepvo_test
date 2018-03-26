@@ -29,11 +29,13 @@ parser.add_argument('--input_width',               type=int,   help='input width
 parser.add_argument('--resize_ratio',              type=float, help='resize ratio', default=0.5)
 parser.add_argument('--baseline',                  type=float, help='stereo baseline', default=0.54)
 parser.add_argument('--focal_length',              type=float, help='focal length', default=718.856)
+parser.add_argument('--c0',                        type=float, help='principal point 0', default=607.1928)
+parser.add_argument('--c1',                        type=float, help='principal point 1', default=185.2157)
 parser.add_argument('--batch_size',                type=int,   help='batch size', default=8)
 parser.add_argument('--num_epochs',                type=int,   help='number of epochs', default=50)
 parser.add_argument('--learning_rate',             type=float, help='initial learning rate', default=1e-4)
 parser.add_argument('--lr_loss_weight',            type=float, help='left-right consistency weight', default=1.0)
-parser.add_argument('--alpha_image_loss',          type=float, help='weight between SSIM and L1 in the image loss', default=0.85)
+parser.add_argument('--alpha_image_loss',          type=float, help='weight between SSIM and L1 in the image loss', default=0.5)
 parser.add_argument('--disp_gradient_loss_weight', type=float, help='disparity smoothness weigth', default=0.1)
 parser.add_argument('--wrap_mode',                 type=str,   help='bilinear sampler wrap mode, edge or border', default='border')
 parser.add_argument('--use_deconv',                            help='if set, will use transposed convolutions', action='store_true')
@@ -160,7 +162,7 @@ def train(params):
             before_op_time = time.time()
             _, loss_value = sess.run([apply_gradient_op, total_loss])
             duration = time.time() - before_op_time
-            if step and step % 100 == 0:
+            if step and step % 10 == 0:
                 examples_per_sec = params.batch_size / duration
                 time_sofar = (time.time() - start_time) / 3600
                 training_time_left = (num_total_steps / step - 1.0) * time_sofar
@@ -232,6 +234,8 @@ def main(_):
         resize_ratio=args.resize_ratio,
         baseline=args.baseline,
         focal_length=args.focal_length,
+        c0=args.c0,
+        c1=args.c1,
         batch_size=args.batch_size,
         num_threads=args.num_threads,
         num_epochs=args.num_epochs,
