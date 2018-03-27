@@ -243,7 +243,7 @@ class UndeepvoModel(object):
         self.left_to_right_disparity = self.generate_image_right(self.disparity_left, self.disparity_left)
 
         #generate k+1 th image
-#        self.left_next_est = projective_transformer(self.left, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left, self.rotation_left, self.translation_left)
+        self.left_next_est = projective_transformer(self.left, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left, self.rotation_left, self.translation_left)
 
     def build_losses(self):
         with tf.variable_scope('losses', reuse=self.reuse_variables):
@@ -273,14 +273,14 @@ class UndeepvoModel(object):
             self.pose_loss = self.l1_translation + self.l1_rotation
 
             # PHOTOMETRIC REGISTRATION (temporal loss)
-#            # L1
-#            self.l1_left_temporal = tf.reduce_mean(tf.abs( self.left_next_est - self.left_next))
-#            # SSIM
-#            self.ssim_left_temporal = tf.reduce_mean(self.SSIM( self.left_next_est,  self.left_next))
-#            self.image_loss_temporal  = self.params.alpha_image_loss * self.ssim_left_temporal  + (1 - self.params.alpha_image_loss) * self.l1_left_temporal
+            # L1
+            self.l1_left_temporal = tf.reduce_mean(tf.abs( self.left_next_est - self.left_next))
+            # SSIM
+            self.ssim_left_temporal = tf.reduce_mean(self.SSIM( self.left_next_est,  self.left_next))
+            self.image_loss_temporal  = self.params.alpha_image_loss * self.ssim_left_temporal  + (1 - self.params.alpha_image_loss) * self.l1_left_temporal
             
             # TOTAL LOSS
-            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss # + self.image_loss_temporal
+            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss + self.image_loss_temporal
 #            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss
 
     def build_summaries(self):
