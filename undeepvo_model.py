@@ -21,8 +21,7 @@ undeepvo_parameters = namedtuple('parameters',
                         'wrap_mode, '
                         'use_deconv, '
                         'alpha_image_loss, '
-                        'disp_gradient_loss_weight, '
-                        'lr_loss_weight, '
+                        'image_loss_weight, disp_loss_weight, pose_loss_weight, temporal_loss_weight, '
                         'full_summary')
 
 class UndeepvoModel(object):
@@ -39,7 +38,8 @@ class UndeepvoModel(object):
 
         self.reuse_variables = reuse_variables
 
-        self.build_model()
+        self.depthmap_left, self.translation_left, self.rotation_left = self.build_model(self.left,self.left_next)
+        self.depthmap_right, self.translation_right, self.rotation_right = self.build_model(self.right,self.right_next)
         self.build_outputs()
 
         if self.mode == 'test':
@@ -175,9 +175,9 @@ class UndeepvoModel(object):
 
         conv5 = self.conv_block(conv4, 512, 3)
 
-        conv6 = self.conv_block(conv5, 512, 3)
+        conv6 = self.conv_block(conv5, 1024, 3)
 
-        conv7 = self.conv_block(conv6, 512, 3)
+        conv7 = self.conv_block(conv6, 1024, 3)
 
         # skips
         skip1 = conv1
@@ -192,7 +192,7 @@ class UndeepvoModel(object):
 
         skip6 = conv6
 
-        deconv7 = self.deconv_block(conv7, 512, 3, skip6)
+        deconv7 = self.deconv_block(conv7, 1024, 3, skip6)
 
         deconv6 = self.deconv_block(deconv7, 512, 3, skip5)
 
@@ -215,14 +215,15 @@ class UndeepvoModel(object):
         depth = self.get_depth(deconv1)
         return depth
 
-    def build_model(self):
+    def build_model(self,img,img_next):
         with slim.arg_scope([slim.conv2d, slim.conv2d_transpose], activation_fn=tf.nn.elu):
             with tf.variable_scope('model', reuse=self.reuse_variables):
 
-                self.depthmap_left = self.build_depth_architecture(self.left)
-                self.depthmap_right = self.build_depth_architecture(self.right)
-                self.translation_left, self.rotation_left = self.build_pose_architecture(self.left,self.left_next)
-                self.translation_right, self.rotation_right = self.build_pose_architecture(self.right,self.right_next)
+                depth = self.build_depth_architecture(img)
+#                self.depthmap_right = self.build_depth_architecture(self.right)
+                trans, rot = self.build_pose_architecture(img,img_next)
+#                self.translation_right, self.rotation_right = self.build_pose_architecture(self.right,self.right_next)
+        return depth,trans,rot
 
     def build_outputs(self):
         if self.mode == 'test':
@@ -244,6 +245,7 @@ class UndeepvoModel(object):
 
         #generate k+1 th image
         self.left_next_est = projective_transformer(self.left, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left, self.rotation_left, self.translation_left)
+        self.right_next_est = projective_transformer(self.right, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_right, self.rotation_right, self.translation_right)
 
     def build_losses(self):
         with tf.variable_scope('losses', reuse=self.reuse_variables):
@@ -275,12 +277,17 @@ class UndeepvoModel(object):
             # PHOTOMETRIC REGISTRATION (temporal loss)
             # L1
             self.l1_left_temporal = tf.reduce_mean(tf.abs( self.left_next_est - self.left_next))
+            self.l1_right_temporal = tf.reduce_mean(tf.abs( self.right_next_est - self.right_next))
             # SSIM
-            self.ssim_left_temporal = tf.reduce_mean(self.SSIM( self.left_next_est,  self.left_next))
-            self.image_loss_temporal  = self.params.alpha_image_loss * self.ssim_left_temporal  + (1 - self.params.alpha_image_loss) * self.l1_left_temporal
+            self.ssim_left_temporal = tf.reduce_mean(self.SSIM( self.left_next_est,  self.left_next))            
+            self.ssim_right_temporal = tf.reduce_mean(self.SSIM( self.right_next_est,  self.right_next))
+            self.image_loss_left_temporal  = self.params.alpha_image_loss * self.ssim_left_temporal  + (1 - self.params.alpha_image_loss) * self.l1_left_temporal
+            self.image_loss_right_temporal  = self.params.alpha_image_loss * self.ssim_right_temporal  + (1 - self.params.alpha_image_loss) * self.l1_right_temporal
+
+            self.image_loss_temporal = self.image_loss_left_temporal + self.image_loss_right_temporal
             
             # TOTAL LOSS
-            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss + self.image_loss_temporal
+            self.total_loss = self.params.image_loss_weight * self.image_loss + self.params.disp_loss_weight * self.disp_loss + self.params.pose_loss_weight * self.pose_loss + self.params.temporal_loss_weight * self.image_loss_temporal
 #            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss
 
     def build_summaries(self):

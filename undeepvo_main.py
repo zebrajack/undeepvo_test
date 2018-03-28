@@ -34,9 +34,11 @@ parser.add_argument('--c1',                        type=float, help='principal p
 parser.add_argument('--batch_size',                type=int,   help='batch size', default=8)
 parser.add_argument('--num_epochs',                type=int,   help='number of epochs', default=50)
 parser.add_argument('--learning_rate',             type=float, help='initial learning rate', default=1e-4)
-parser.add_argument('--lr_loss_weight',            type=float, help='left-right consistency weight', default=1.0)
-parser.add_argument('--alpha_image_loss',          type=float, help='weight between SSIM and L1 in the image loss', default=0.5)
-parser.add_argument('--disp_gradient_loss_weight', type=float, help='disparity smoothness weigth', default=0.1)
+parser.add_argument('--image_loss_weight',         type=float, help='image loss weight', default=0.5)
+parser.add_argument('--disp_loss_weight',         type=float, help='image loss weight', default=1.0)
+parser.add_argument('--pose_loss_weight',         type=float, help='image loss weight', default=1.0)
+parser.add_argument('--temporal_loss_weight',         type=float, help='image loss weight', default=0.25)
+parser.add_argument('--alpha_image_loss',          type=float, help='weight between SSIM and L1 in the image loss', default=0.85)
 parser.add_argument('--wrap_mode',                 type=str,   help='bilinear sampler wrap mode, edge or border', default='border')
 parser.add_argument('--use_deconv',                            help='if set, will use transposed convolutions', action='store_true')
 parser.add_argument('--num_gpus',                  type=int,   help='number of GPUs to use for training', default=1)
@@ -102,7 +104,7 @@ def train(params):
 
         tower_grads  = []
         tower_losses = []
-        reuse_variables = None
+        reuse_variables = True
         with tf.variable_scope(tf.get_variable_scope()):
             for i in range(args.num_gpus):
                 with tf.device('/gpu:%d' % i):
@@ -162,7 +164,7 @@ def train(params):
             before_op_time = time.time()
             _, loss_value = sess.run([apply_gradient_op, total_loss])
             duration = time.time() - before_op_time
-            if step and step % 10 == 0:
+            if step and step % 100 == 0:
                 examples_per_sec = params.batch_size / duration
                 time_sofar = (time.time() - start_time) / 3600
                 training_time_left = (num_total_steps / step - 1.0) * time_sofar
@@ -242,8 +244,10 @@ def main(_):
         wrap_mode=args.wrap_mode,
         use_deconv=args.use_deconv,
         alpha_image_loss=args.alpha_image_loss,
-        disp_gradient_loss_weight=args.disp_gradient_loss_weight,
-        lr_loss_weight=args.lr_loss_weight,
+        image_loss_weight = args.image_loss_weight,
+        disp_loss_weight = args.disp_loss_weight,
+        pose_loss_weight = args.pose_loss_weight,
+        temporal_loss_weight = args.temporal_loss_weight,
         full_summary=args.full_summary)
 
     if args.mode == 'train':
