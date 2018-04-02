@@ -80,7 +80,7 @@ def bilinear_sampler_1d_h(input_images, x_offset, wrap_mode='border', name='bili
             x_t_flat = tf.reshape(x_t_flat, [-1])
             y_t_flat = tf.reshape(y_t_flat, [-1])
 
-            x_t_flat = x_t_flat + tf.reshape(x_offset, [-1]) #* _width_f
+            x_t_flat = x_t_flat + tf.reshape(x_offset, [-1]) * _width_f
             
             input_transformed = _interpolate(input_images, x_t_flat, y_t_flat)
 
