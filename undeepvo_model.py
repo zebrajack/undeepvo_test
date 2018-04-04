@@ -346,7 +346,9 @@ class UndeepvoModel(object):
             tf.summary.scalar('disp_gradient_loss', self.disp_gradient_loss, collections=self.model_collection)
             tf.summary.image('left_est',  self.left_est,   max_outputs=1, collections=self.model_collection)
             tf.summary.image('disparity_left', self.disparity_left,  max_outputs=1, collections=self.model_collection)
-#            tf.summary.image('depthmap_left',  self.depthmap_left,   max_outputs=1, collections=self.model_collection)
+            tf.summary.image('left_next_est',  self.left_next_est,   max_outputs=1, collections=self.model_collection)
+            tf.summary.image('left', self.left,  max_outputs=1, collections=self.model_collection)
+            tf.summary.image('left_next',  self.left_next,   max_outputs=1, collections=self.model_collection)
 
             if self.params.full_summary:
                 tf.summary.image('left_est', self.left_est, max_outputs=4, collections=self.model_collection)
