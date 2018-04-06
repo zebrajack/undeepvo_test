@@ -5,11 +5,13 @@ from collections import namedtuple
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-from keras.layers import Conv2D, Conv2DTranspose, MaxPooling2D, concatenate, Cropping2D, Dense, Flatten
+from keras.layers import Conv2D, Conv2DTranspose, MaxPooling2D, concatenate, Cropping2D, Dense, Flatten, Input, Reshape
+from keras.models import Model
 from layers import depth_to_disparity, disparity_difference, expand_dims, spatial_transformation, disparity_to_depth
 
 from bilinear_sampler import *
 from projective_transformer import *
+from projective_transformer_inv import *
 
 undeepvo_parameters = namedtuple('parameters',
                         'height, width, '
@@ -21,7 +23,7 @@ undeepvo_parameters = namedtuple('parameters',
                         'wrap_mode, '
                         'use_deconv, '
                         'alpha_image_loss, '
-                        'image_loss_weight, disp_loss_weight, pose_loss_weight, temporal_loss_weight, '
+                        'image_loss_weight, disp_loss_weight, pose_loss_weight, gradient_loss_weight, temporal_loss_weight, '
                         'full_summary')
 
 class UndeepvoModel(object):
@@ -38,8 +40,15 @@ class UndeepvoModel(object):
 
         self.reuse_variables = reuse_variables
 
-        self.depthmap_left, self.translation_left, self.rotation_left = self.build_model(self.left,self.left_next)
-        self.depthmap_right, self.translation_right, self.rotation_right = self.build_model(self.right,self.right_next)
+        
+        self.build_depth_architecture()
+        self.build_pose_architecture()
+
+#        self.disparity_left, self.translation_left, self.rotation_left = self.build_model(self.left,self.left_next)
+#        self.disparity_right, self.translation_right, self.rotation_right = self.build_model(self.right,self.right_next)
+        self.disparity_left, self.disparity_right, self.disparity_left_next, self.disparity_right_next, self.translation_left, self.rotation_left, self.translation_right, self.rotation_right = self.build_model(self.left, self.right, self.left_next, self.right_next)
+        
+
         self.build_outputs()
 
         if self.mode == 'test':
@@ -104,7 +113,8 @@ class UndeepvoModel(object):
         return tf.image.resize_nearest_neighbor(x, [h * ratio, w * ratio])
 
     def get_disp(self, x):
-        disp = 0.3 * self.conv(x, 1, 3, 1, tf.nn.sigmoid)
+        disp = self.conv(x, 1, 3, 1, activation='sigmoid')
+        disp = Lambda(lambda x: 0.3 * x)(disp)
         return disp
 
     def get_depth(self, x):
@@ -141,9 +151,11 @@ class UndeepvoModel(object):
         if skip is not None:
             s = skip.shape
             if  s[1] % 2 != 0:
-                deconv1 = deconv1[:,:-1,:,:]
+                deconv1 = Lambda(lambda x: x[:,:-1,:,:])(deconv1)
+#                deconv1 = deconv1[:,:-1,:,:]
             if  s[2] % 2 != 0:
-                deconv1 = deconv1[:,:,:-1,:]
+                deconv1 = Lambda(lambda x: x[:,:,:-1,:])(deconv1)
+#                deconv1 = deconv1[:,:,:-1,:]
             concat1 = concatenate([deconv1, skip], 3)
         else:
             concat1 = deconv1
@@ -153,11 +165,10 @@ class UndeepvoModel(object):
         return iconv1
 
 
-    def build_pose_architecture(self,in_image,in_image_next):
-#        in_image_resized  = tf.image.resize_images(in_image,  [384, 1280], tf.image.ResizeMethod.AREA)
-#        in_image_next_resized  = tf.image.resize_images(in_image_next,  [384, 1280], tf.image.ResizeMethod.AREA)
-#        input = concatenate([in_image_resized, in_image_next_resized], axis=3)
-        input = concatenate([in_image, in_image_next], axis=3)
+    def build_pose_architecture(self):
+
+        input_shape = concatenate([self.left,self.left_next], axis=3)
+        input = Input(batch_shape=input_shape.get_shape().as_list())
 
         conv1 = self.conv(input, 16, 7, 2, activation='relu')
 
@@ -175,7 +186,11 @@ class UndeepvoModel(object):
 
 #        flat1 = Flatten()(conv7)
         dim = np.prod(conv7.shape[1:])
-        flat1 = tf.reshape(conv7, [-1, dim])
+
+#        print(conv7)
+#        flat1 = tf.reshape(conv7, [-1, dim])
+        flat1 = Lambda(lambda x: tf.reshape(x, [-1, dim]))(conv7)
+#        print(flat1)
 
         # translation
 
@@ -193,12 +208,16 @@ class UndeepvoModel(object):
 
         fc3_rot = Dense(3, input_shape=(512,))(fc2_rot)
 
+        
+#        return fc3_tran, fc3_rot
+        self.pose_model = Model(input, [fc3_tran, fc3_rot])
 
-        return fc3_tran, fc3_rot
+    def build_depth_architecture(self):
 
-    def build_depth_architecture(self,in_image):
+        input = Input(batch_shape=self.left.get_shape().as_list())
+
         # encoder
-        conv1 = self.conv_block(in_image, 32, 7)
+        conv1 = self.conv_block(input, 32, 7)
 
         conv2 = self.conv_block(conv1, 64, 5)
 
@@ -239,55 +258,73 @@ class UndeepvoModel(object):
 
         deconv1 = self.deconv_block(deconv2, 16, 3, None)
 
-        s = in_image.shape
+        s = self.left.shape
         if  s[1] % 2 != 0:
-            deconv1 = deconv1[:,:-1,:,:]
+            deconv1 = Lambda(lambda x: x[:,:-1,:,:])(deconv1)
         if  s[2] % 2 != 0:
-            deconv1 = deconv1[:,:,:-1,:]
-#        return deconv1
-        depth = self.get_disp(deconv1)
-        return depth
+           deconv1 = Lambda(lambda x: x[:,:,:-1,:])(deconv1)
 
-    def build_model(self,img,img_next):
+        disp = self.get_disp(deconv1)
+
+        self.depth_model = Model(input, disp)
+#        return depth
+
+    def build_model(self,img_left,img_right,img_left_next,img_right_next):
         with slim.arg_scope([slim.conv2d, slim.conv2d_transpose], activation_fn=tf.nn.elu):
-            with tf.variable_scope('model', reuse=tf.AUTO_REUSE):
+            with tf.variable_scope('model',reuse=self.reuse_variables):
 
-                depth = self.build_depth_architecture(img)
-#                depth = self.build_vgg(img)
-                trans, rot = self.build_pose_architecture(img,img_next)
-        return depth,trans,rot
+#                disp_left = self.build_depth_architecture(img_left)
+#                disp_left_next = self.build_depth_architecture(img_left_next)
+#                disp_right = self.build_depth_architecture(img_right)
+#                disp_right_next = self.build_depth_architecture(img_right_next)
+#                left_trans, left_rot = self.build_pose_architecture(img_left,img_left_next)
+#                right_trans, right_rot = self.build_pose_architecture(img_right,img_right_next)
+
+                disp_left = self.depth_model(img_left) 
+                disp_left.set_shape(disp_left._keras_shape)
+                disp_left_next = self.depth_model(img_left_next)
+                disp_left_next.set_shape(disp_left_next._keras_shape)
+                disp_right = self.depth_model(img_right)
+                disp_right.set_shape(disp_right._keras_shape)
+                disp_right_next = self.depth_model(img_right_next)
+                disp_right_next.set_shape(disp_right_next._keras_shape)
+
+                [left_trans, left_rot] = self.pose_model(concatenate([img_left,img_left_next], axis=3))                
+                [right_trans, right_rot] = self.pose_model(concatenate([img_right,img_right_next], axis=3))
+
+        return disp_left,disp_right, disp_left_next, disp_right_next, left_trans, left_rot, right_trans, right_rot
 
     def build_outputs(self):
         if self.mode == 'test':
             return 
 
-        # generate disparities
-#        self.disparity_left = depth_to_disparity(self.depthmap_left, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width, 'disparity_left')
-#        self.disparity_right = depth_to_disparity(self.depthmap_right, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width, 'disparity_right')
-        
-
-        self.disparity_left = self.depthmap_left
-        self.disparity_right = self.depthmap_right
+        # generate depth maps
         self.depthmap_left = disparity_to_depth(self.disparity_left, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left')
-        self.depthmap_right = disparity_to_depth(self.disparity_right, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left')
+        self.depthmap_right = disparity_to_depth(self.disparity_right, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_right')
+        self.depthmap_left_next = disparity_to_depth(self.disparity_left_next, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left_next')
+        self.depthmap_right_next = disparity_to_depth(self.disparity_right_next, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_right_next')
 
         # generate estimates of left and right images
         self.left_est  = self.generate_image_left(self.right, self.disparity_right)
         self.right_est = self.generate_image_right(self.left, self.disparity_left)
-#        self.left_est = spatial_transformation([self.right, self.disparity_right], -1, 'left_est')
-#        self.right_est = spatial_transformation([self.left, self.disparity_left], 1, 'right_est')
+#        self.left_next_est  = self.generate_image_left(self.right_next, self.disparity_right_next)
+#        self.right_next_est = self.generate_image_right(self.left_next, self.disparity_left_next)
 
         # generate left - right consistency
         self.right_to_left_disparity = self.generate_image_left(self.disparity_right, self.disparity_right)
         self.left_to_right_disparity = self.generate_image_right(self.disparity_left, self.disparity_left)
 
         #generate k+1 th image
-        self.left_next_est = projective_transformer(self.left, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left, self.rotation_left, self.translation_left)
-        self.right_next_est = projective_transformer(self.right, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_right, self.rotation_right, self.translation_right)
+        self.left_k_plus_one = projective_transformer(self.left, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left, self.rotation_left, self.translation_left)
+        self.right_k_plus_one = projective_transformer(self.right, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_right, self.rotation_right, self.translation_right)
+
+        #generat k th image
+        self.left_k = projective_transformer_inv(self.left_next, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left_next, self.rotation_left, self.translation_left)
+        self.right_k = projective_transformer_inv(self.right_next, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_right_next, self.rotation_right, self.translation_right)
 
         # DISPARITY SMOOTHNESS
         self.disp_left_smoothness  = self.get_disparity_smoothness(self.disparity_left,  self.left)
-        self.disp_right_smoothness = self.get_disparity_smoothness(self.disparity_left, self.right)
+        self.disp_right_smoothness = self.get_disparity_smoothness(self.disparity_right, self.right)
 
     def build_losses(self):
         with tf.variable_scope('losses', reuse=self.reuse_variables):
@@ -298,16 +335,15 @@ class UndeepvoModel(object):
             # SSIM
             self.ssim_left = tf.reduce_mean(self.SSIM( self.left_est,  self.left))
             self.ssim_right = tf.reduce_mean(self.SSIM(self.right_est, self.right))
-
-            # DISPARITY DIFF
-            self.l1_disp_left = tf.reduce_mean(tf.abs( tf.subtract(self.disparity_left, self.right_to_left_disparity) ))
-            self.l1_disp_right = tf.reduce_mean(tf.abs( tf.subtract(self.disparity_right, self.left_to_right_disparity) ))
-
             # PHOTOMETRIC CONSISTENCY (spatial loss)
             self.image_loss_left  = self.params.alpha_image_loss * self.ssim_left  + (1 - self.params.alpha_image_loss) * self.l1_left
             self.image_loss_right = self.params.alpha_image_loss * self.ssim_right + (1 - self.params.alpha_image_loss) * self.l1_right        
             self.image_loss = self.image_loss_left + self.image_loss_right
 
+
+            # DISPARITY DIFF
+            self.l1_disp_left = tf.reduce_mean(tf.abs( tf.subtract(self.disparity_left, self.right_to_left_disparity) ))
+            self.l1_disp_right = tf.reduce_mean(tf.abs( tf.subtract(self.disparity_right, self.left_to_right_disparity) ))
             # DISPARITY CONSISTENCY
             self.disp_loss = self.l1_disp_left + self.l1_disp_right
 
@@ -318,11 +354,20 @@ class UndeepvoModel(object):
 
             # PHOTOMETRIC REGISTRATION (temporal loss)
             # L1
-            self.l1_left_temporal = tf.reduce_mean(tf.abs( tf.subtract(self.left_next_est, self.left_next) ))
-            self.l1_right_temporal = tf.reduce_mean(tf.abs( tf.subtract(self.right_next_est, self.right_next) ))
+            self.l1_left_k_plus_one = tf.reduce_mean(tf.abs( tf.subtract(self.left_k_plus_one, self.left_next) ))
+            self.l1_left_k = tf.reduce_mean(tf.abs( tf.subtract(self.left_k, self.left) ))
+            self.l1_right_k_plus_one = tf.reduce_mean(tf.abs( tf.subtract(self.right_k_plus_one, self.right_next) ))
+            self.l1_right_k = tf.reduce_mean(tf.abs( tf.subtract(self.right_k, self.right) )) 
+            self.l1_left_temporal = self.l1_left_k_plus_one #+ self.l1_left_k
+            self.l1_right_temporal = self.l1_right_k_plus_one #+ self.l1_right_k
             # SSIM
-            self.ssim_left_temporal = tf.reduce_mean(self.SSIM( self.left_next_est,  self.left_next))            
-            self.ssim_right_temporal = tf.reduce_mean(self.SSIM( self.right_next_est,  self.right_next))
+            self.ssim_left_k_plus_one = tf.reduce_mean(self.SSIM( self.left_k_plus_one,  self.left_next))
+            self.ssim_left_k = tf.reduce_mean(self.SSIM( self.left_k,  self.left))
+            self.ssim_right_k_plus_one = tf.reduce_mean(self.SSIM( self.right_k_plus_one,  self.right_next))
+            self.ssim_right_k = tf.reduce_mean(self.SSIM( self.right_k,  self.right))
+            self.ssim_left_temporal = self.ssim_left_k_plus_one + self.ssim_left_k       
+            self.ssim_right_temporal = self.ssim_right_k_plus_one + self.ssim_right_k            
+            # Temporal LOSS
             self.image_loss_left_temporal  = self.params.alpha_image_loss * self.ssim_left_temporal  + (1 - self.params.alpha_image_loss) * self.l1_left_temporal
             self.image_loss_right_temporal  = self.params.alpha_image_loss * self.ssim_right_temporal  + (1 - self.params.alpha_image_loss) * self.l1_right_temporal
             self.image_loss_temporal = self.image_loss_left_temporal + self.image_loss_right_temporal
@@ -333,7 +378,7 @@ class UndeepvoModel(object):
             self.disp_gradient_loss = self.disp_left_loss + self.disp_right_loss
 
             # TOTAL LOSS
-            self.total_loss = self.params.image_loss_weight * self.image_loss + self.params.disp_loss_weight * self.disp_loss + self.params.pose_loss_weight * self.pose_loss + self.params.temporal_loss_weight * self.image_loss_temporal + self.disp_gradient_loss
+            self.total_loss = self.params.image_loss_weight * self.image_loss + self.params.disp_loss_weight * self.disp_loss + self.params.pose_loss_weight * self.pose_loss + self.params.temporal_loss_weight * self.image_loss_temporal + self.params.gradient_loss_weight * self.disp_gradient_loss
 #            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss
 
     def build_summaries(self):
@@ -346,7 +391,7 @@ class UndeepvoModel(object):
             tf.summary.scalar('disp_gradient_loss', self.disp_gradient_loss, collections=self.model_collection)
             tf.summary.image('left_est',  self.left_est,   max_outputs=1, collections=self.model_collection)
             tf.summary.image('disparity_left', self.disparity_left,  max_outputs=1, collections=self.model_collection)
-            tf.summary.image('left_next_est',  self.left_next_est,   max_outputs=1, collections=self.model_collection)
+            tf.summary.image('left_k_plus_one',  self.left_k_plus_one,   max_outputs=1, collections=self.model_collection)
             tf.summary.image('left', self.left,  max_outputs=1, collections=self.model_collection)
             tf.summary.image('left_next',  self.left_next,   max_outputs=1, collections=self.model_collection)
 

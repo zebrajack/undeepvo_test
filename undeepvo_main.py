@@ -34,10 +34,11 @@ parser.add_argument('--c1',                        type=float, help='principal p
 parser.add_argument('--batch_size',                type=int,   help='batch size', default=8)
 parser.add_argument('--num_epochs',                type=int,   help='number of epochs', default=50)
 parser.add_argument('--learning_rate',             type=float, help='initial learning rate', default=1e-4)
-parser.add_argument('--image_loss_weight',         type=float, help='image loss weight', default=1.0)
+parser.add_argument('--image_loss_weight',         type=float, help='image loss weight', default=0.5)
 parser.add_argument('--disp_loss_weight',          type=float, help='disparity loss weight', default=1.0)
 parser.add_argument('--pose_loss_weight',          type=float, help='pose loss weight', default=1.0)
-parser.add_argument('--temporal_loss_weight',      type=float, help='temporal loss weight', default=0.5)#1.0
+parser.add_argument('--gradient_loss_weight',      type=float, help='gradient loss weight', default=1.0)
+parser.add_argument('--temporal_loss_weight',      type=float, help='temporal loss weight', default=0.2)
 parser.add_argument('--alpha_image_loss',          type=float, help='weight between SSIM and L1 in the image loss', default=0.85)
 parser.add_argument('--wrap_mode',                 type=str,   help='bilinear sampler wrap mode, edge or border', default='border')
 parser.add_argument('--use_deconv',                            help='if set, will use transposed convolutions', action='store_true')
@@ -164,7 +165,7 @@ def train(params):
             before_op_time = time.time()
             _, loss_value = sess.run([apply_gradient_op, total_loss])
             duration = time.time() - before_op_time
-            if step and step % 100 == 0:
+            if step and step % 1 == 0:
                 examples_per_sec = params.batch_size / duration
                 time_sofar = (time.time() - start_time) / 3600
                 training_time_left = (num_total_steps / step - 1.0) * time_sofar
@@ -247,6 +248,7 @@ def main(_):
         image_loss_weight = args.image_loss_weight,
         disp_loss_weight = args.disp_loss_weight,
         pose_loss_weight = args.pose_loss_weight,
+        gradient_loss_weight = args.gradient_loss_weight,
         temporal_loss_weight = args.temporal_loss_weight,
         full_summary=args.full_summary)
 
