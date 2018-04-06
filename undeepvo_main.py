@@ -165,7 +165,7 @@ def train(params):
             before_op_time = time.time()
             _, loss_value = sess.run([apply_gradient_op, total_loss])
             duration = time.time() - before_op_time
-            if step and step % 1 == 0:
+            if step and step % 100 == 0:
                 examples_per_sec = params.batch_size / duration
                 time_sofar = (time.time() - start_time) / 3600
                 training_time_left = (num_total_steps / step - 1.0) * time_sofar

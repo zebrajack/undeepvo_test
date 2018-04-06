@@ -46,7 +46,7 @@ class UndeepvoModel(object):
 
 #        self.disparity_left, self.translation_left, self.rotation_left = self.build_model(self.left,self.left_next)
 #        self.disparity_right, self.translation_right, self.rotation_right = self.build_model(self.right,self.right_next)
-        self.disparity_left, self.disparity_right, self.disparity_left_next, self.disparity_right_next, self.translation_left, self.rotation_left, self.translation_right, self.rotation_right = self.build_model(self.left, self.right, self.left_next, self.right_next)
+        self.disparity_left, self.disparity_right, self.translation_left, self.rotation_left, self.translation_right, self.rotation_right = self.build_model(self.left, self.right, self.left_next, self.right_next)
         
 
         self.build_outputs()
@@ -262,7 +262,7 @@ class UndeepvoModel(object):
         if  s[1] % 2 != 0:
             deconv1 = Lambda(lambda x: x[:,:-1,:,:])(deconv1)
         if  s[2] % 2 != 0:
-           deconv1 = Lambda(lambda x: x[:,:,:-1,:])(deconv1)
+            deconv1 = Lambda(lambda x: x[:,:,:-1,:])(deconv1)
 
         disp = self.get_disp(deconv1)
 
@@ -282,17 +282,19 @@ class UndeepvoModel(object):
 
                 disp_left = self.depth_model(img_left) 
                 disp_left.set_shape(disp_left._keras_shape)
-                disp_left_next = self.depth_model(img_left_next)
-                disp_left_next.set_shape(disp_left_next._keras_shape)
+#                disp_left_next = self.depth_model(img_left_next)
+#                disp_left_next.set_shape(disp_left_next._keras_shape)
                 disp_right = self.depth_model(img_right)
                 disp_right.set_shape(disp_right._keras_shape)
-                disp_right_next = self.depth_model(img_right_next)
-                disp_right_next.set_shape(disp_right_next._keras_shape)
+#                disp_right_next = self.depth_model(img_right_next)
+#                disp_right_next.set_shape(disp_right_next._keras_shape)
 
                 [left_trans, left_rot] = self.pose_model(concatenate([img_left,img_left_next], axis=3))                
                 [right_trans, right_rot] = self.pose_model(concatenate([img_right,img_right_next], axis=3))
 
-        return disp_left,disp_right, disp_left_next, disp_right_next, left_trans, left_rot, right_trans, right_rot
+#        return disp_left,disp_right, disp_left_next, disp_right_next, left_trans, left_rot, right_trans, right_rot
+        return disp_left,disp_right, left_trans, left_rot, right_trans, right_rot
+
 
     def build_outputs(self):
         if self.mode == 'test':
@@ -301,8 +303,8 @@ class UndeepvoModel(object):
         # generate depth maps
         self.depthmap_left = disparity_to_depth(self.disparity_left, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left')
         self.depthmap_right = disparity_to_depth(self.disparity_right, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_right')
-        self.depthmap_left_next = disparity_to_depth(self.disparity_left_next, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left_next')
-        self.depthmap_right_next = disparity_to_depth(self.disparity_right_next, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_right_next')
+#        self.depthmap_left_next = disparity_to_depth(self.disparity_left_next, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left_next')
+#        self.depthmap_right_next = disparity_to_depth(self.disparity_right_next, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_right_next')
 
         # generate estimates of left and right images
         self.left_est  = self.generate_image_left(self.right, self.disparity_right)
@@ -318,9 +320,9 @@ class UndeepvoModel(object):
         self.left_k_plus_one = projective_transformer(self.left, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left, self.rotation_left, self.translation_left)
         self.right_k_plus_one = projective_transformer(self.right, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_right, self.rotation_right, self.translation_right)
 
-        #generat k th image
-        self.left_k = projective_transformer_inv(self.left_next, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left_next, self.rotation_left, self.translation_left)
-        self.right_k = projective_transformer_inv(self.right_next, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_right_next, self.rotation_right, self.translation_right)
+#        #generat k th image
+#        self.left_k = projective_transformer_inv(self.left_next, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left_next, self.rotation_left, self.translation_left)
+#        self.right_k = projective_transformer_inv(self.right_next, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_right_next, self.rotation_right, self.translation_right)
 
         # DISPARITY SMOOTHNESS
         self.disp_left_smoothness  = self.get_disparity_smoothness(self.disparity_left,  self.left)
@@ -355,18 +357,18 @@ class UndeepvoModel(object):
             # PHOTOMETRIC REGISTRATION (temporal loss)
             # L1
             self.l1_left_k_plus_one = tf.reduce_mean(tf.abs( tf.subtract(self.left_k_plus_one, self.left_next) ))
-            self.l1_left_k = tf.reduce_mean(tf.abs( tf.subtract(self.left_k, self.left) ))
+#            self.l1_left_k = tf.reduce_mean(tf.abs( tf.subtract(self.left_k, self.left) ))
             self.l1_right_k_plus_one = tf.reduce_mean(tf.abs( tf.subtract(self.right_k_plus_one, self.right_next) ))
-            self.l1_right_k = tf.reduce_mean(tf.abs( tf.subtract(self.right_k, self.right) )) 
+#            self.l1_right_k = tf.reduce_mean(tf.abs( tf.subtract(self.right_k, self.right) )) 
             self.l1_left_temporal = self.l1_left_k_plus_one #+ self.l1_left_k
             self.l1_right_temporal = self.l1_right_k_plus_one #+ self.l1_right_k
             # SSIM
             self.ssim_left_k_plus_one = tf.reduce_mean(self.SSIM( self.left_k_plus_one,  self.left_next))
-            self.ssim_left_k = tf.reduce_mean(self.SSIM( self.left_k,  self.left))
+#            self.ssim_left_k = tf.reduce_mean(self.SSIM( self.left_k,  self.left))
             self.ssim_right_k_plus_one = tf.reduce_mean(self.SSIM( self.right_k_plus_one,  self.right_next))
-            self.ssim_right_k = tf.reduce_mean(self.SSIM( self.right_k,  self.right))
-            self.ssim_left_temporal = self.ssim_left_k_plus_one + self.ssim_left_k       
-            self.ssim_right_temporal = self.ssim_right_k_plus_one + self.ssim_right_k            
+#            self.ssim_right_k = tf.reduce_mean(self.SSIM( self.right_k,  self.right))
+            self.ssim_left_temporal = self.ssim_left_k_plus_one #+ self.ssim_left_k       
+            self.ssim_right_temporal = self.ssim_right_k_plus_one #+ self.ssim_right_k            
             # Temporal LOSS
             self.image_loss_left_temporal  = self.params.alpha_image_loss * self.ssim_left_temporal  + (1 - self.params.alpha_image_loss) * self.l1_left_temporal
             self.image_loss_right_temporal  = self.params.alpha_image_loss * self.ssim_right_temporal  + (1 - self.params.alpha_image_loss) * self.l1_right_temporal
