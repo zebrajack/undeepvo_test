@@ -73,7 +73,7 @@ class UndeepvoModel(object):
     def generate_image_right(self, img, disp):
         return bilinear_sampler_1d_h(img, disp)
 
-    def get_disparity_smoothness(self, disp, img):
+    def get_disparity_smoothness_single(self, disp, img):
         disp_gradients_x = self.gradient_x(disp)
         disp_gradients_y = self.gradient_y(disp)
 
@@ -86,6 +86,20 @@ class UndeepvoModel(object):
         smoothness_x = disp_gradients_x * weights_x
         smoothness_y = disp_gradients_y * weights_y
 
+        return smoothness_x + smoothness_y
+
+    def get_disparity_smoothness(self, disp, pyramid):
+        disp_gradients_x = [self.gradient_x(d) for d in disp]
+        disp_gradients_y = [self.gradient_y(d) for d in disp]
+
+        image_gradients_x = [self.gradient_x(img) for img in pyramid]
+        image_gradients_y = [self.gradient_y(img) for img in pyramid]
+
+        weights_x = [tf.exp(-tf.reduce_mean(tf.abs(g), 3, keepdims=True)) for g in image_gradients_x]
+        weights_y = [tf.exp(-tf.reduce_mean(tf.abs(g), 3, keepdims=True)) for g in image_gradients_y]
+
+        smoothness_x = [disp_gradients_x[i] * weights_x[i] for i in range(4)]
+        smoothness_y = [disp_gradients_y[i] * weights_y[i] for i in range(4)]
         return smoothness_x + smoothness_y
 
     def SSIM(self, x, y):
@@ -106,11 +120,32 @@ class UndeepvoModel(object):
 
         return tf.clip_by_value((1 - SSIM) / 2, 0, 1)
 
-    def upsample_nn(self, x, ratio):
-        s = tf.shape(x)
+    def upsample_nn(self, input, ratio):
+        s = tf.shape(input)
         h = s[1]
         w = s[2]
-        return tf.image.resize_nearest_neighbor(x, [h * ratio, w * ratio])
+        output = Lambda(lambda x: tf.image.resize_nearest_neighbor(x, [h * ratio, w * ratio]))(input)
+        output_shape = output._keras_shape
+        output.set_shape(output_shape)
+        return output
+
+    def scale_pyramid(self, img, num_scales):
+        scaled_imgs = [img]
+#        s = tf.shape(img)        
+        s = img.get_shape().as_list()
+        h = s[1]
+        w = s[2]
+        for i in range(num_scales - 1):
+            ratio = 2 ** (i + 1)
+            nh = h // ratio
+            nw = w // ratio
+            if  (h//(ratio//2)) % 2 != 0:
+                nh = nh +1
+            if  (w//(ratio//2)) % 2 != 0:
+                nw = nw +1
+            scaled_imgs.append(tf.image.resize_area(img, [nh, nw]))
+            scaled_imgs[i+1].set_shape([s[0],nh,nw,s[3]])
+        return scaled_imgs
 
     def get_disp(self, x):
         disp = self.conv(x, 1, 3, 1, activation='sigmoid')
@@ -152,10 +187,9 @@ class UndeepvoModel(object):
             s = skip.shape
             if  s[1] % 2 != 0:
                 deconv1 = Lambda(lambda x: x[:,:-1,:,:])(deconv1)
-#                deconv1 = deconv1[:,:-1,:,:]
             if  s[2] % 2 != 0:
                 deconv1 = Lambda(lambda x: x[:,:,:-1,:])(deconv1)
-#                deconv1 = deconv1[:,:,:-1,:]
+
             concat1 = concatenate([deconv1, skip], 3)
         else:
             concat1 = deconv1
@@ -251,10 +285,18 @@ class UndeepvoModel(object):
         deconv5 = self.deconv_block(deconv6, 256, 3, skip4)
 
         deconv4 = self.deconv_block(deconv5, 128, 3, skip3)
+        disp4 = self.get_disp(deconv4)
+#        udisp4  = self.upsample_nn(disp4, 2)
 
+#        concat3 = concatenate([skip2, udisp4], 3)
         deconv3 = self.deconv_block(deconv4, 64, 3, skip2)
+        disp3 = self.get_disp(deconv3)
+#        udisp3  = self.upsample_nn(disp3, 2)
 
+#        concat2 = concatenate([skip1, udisp3], 3)
         deconv2 = self.deconv_block(deconv3, 32, 3, skip1)
+        disp2 = self.get_disp(deconv2)
+#        udisp2  = self.upsample_nn(disp2, 2)
 
         deconv1 = self.deconv_block(deconv2, 16, 3, None)
 
@@ -264,30 +306,24 @@ class UndeepvoModel(object):
         if  s[2] % 2 != 0:
             deconv1 = Lambda(lambda x: x[:,:,:-1,:])(deconv1)
 
-        disp = self.get_disp(deconv1)
+        disp1 = self.get_disp(deconv1)
 
-        self.depth_model = Model(input, disp)
+        disp_est  = [disp1, disp2, disp3, disp4]
+
+        self.depth_model = Model(input, disp_est)
 #        return depth
 
     def build_model(self,img_left,img_right,img_left_next,img_right_next):
         with slim.arg_scope([slim.conv2d, slim.conv2d_transpose], activation_fn=tf.nn.elu):
             with tf.variable_scope('model',reuse=self.reuse_variables):
 
-#                disp_left = self.build_depth_architecture(img_left)
-#                disp_left_next = self.build_depth_architecture(img_left_next)
-#                disp_right = self.build_depth_architecture(img_right)
-#                disp_right_next = self.build_depth_architecture(img_right_next)
-#                left_trans, left_rot = self.build_pose_architecture(img_left,img_left_next)
-#                right_trans, right_rot = self.build_pose_architecture(img_right,img_right_next)
+                self.left_pyramid  = self.scale_pyramid(img_left,  4)
+                self.right_pyramid  = self.scale_pyramid(img_right,  4)
 
                 disp_left = self.depth_model(img_left) 
-                disp_left.set_shape(disp_left._keras_shape)
-#                disp_left_next = self.depth_model(img_left_next)
-#                disp_left_next.set_shape(disp_left_next._keras_shape)
+                [disp_left[i].set_shape(disp_left[i]._keras_shape) for i in range(4)]
                 disp_right = self.depth_model(img_right)
-                disp_right.set_shape(disp_right._keras_shape)
-#                disp_right_next = self.depth_model(img_right_next)
-#                disp_right_next.set_shape(disp_right_next._keras_shape)
+                [disp_right[i].set_shape(disp_right[i]._keras_shape) for i in range(4)]
 
                 [left_trans, left_rot] = self.pose_model(concatenate([img_left,img_left_next], axis=3))                
                 [right_trans, right_rot] = self.pose_model(concatenate([img_right,img_right_next], axis=3))
@@ -298,56 +334,56 @@ class UndeepvoModel(object):
 
     def build_outputs(self):
         if self.mode == 'test':
-            return 
+            return
 
         # generate depth maps
-        self.depthmap_left = disparity_to_depth(self.disparity_left, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left')
-        self.depthmap_right = disparity_to_depth(self.disparity_right, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_right')
-#        self.depthmap_left_next = disparity_to_depth(self.disparity_left_next, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left_next')
-#        self.depthmap_right_next = disparity_to_depth(self.disparity_right_next, self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_right_next')
+        self.depthmap_left = disparity_to_depth(self.disparity_left[0], self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left')
+        self.depthmap_right = disparity_to_depth(self.disparity_right[0], self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_right')
 
         # generate estimates of left and right images
-        self.left_est  = self.generate_image_left(self.right, self.disparity_right)
-        self.right_est = self.generate_image_right(self.left, self.disparity_left)
-#        self.left_next_est  = self.generate_image_left(self.right_next, self.disparity_right_next)
-#        self.right_next_est = self.generate_image_right(self.left_next, self.disparity_left_next)
+        self.left_est  = [self.generate_image_left(self.right_pyramid[i], self.disparity_right[i]) for i in range(4)]
+        self.right_est = [self.generate_image_right(self.left_pyramid[i], self.disparity_left[i]) for i in range(4)]
 
         # generate left - right consistency
-        self.right_to_left_disparity = self.generate_image_left(self.disparity_right, self.disparity_right)
-        self.left_to_right_disparity = self.generate_image_right(self.disparity_left, self.disparity_left)
+        self.right_to_left_disparity = [self.generate_image_left(self.disparity_right[i], self.disparity_right[i]) for i in range(4)]
+        self.left_to_right_disparity = [self.generate_image_right(self.disparity_left[i], self.disparity_left[i]) for i in range(4)]
 
         #generate k+1 th image
         self.left_k_plus_one = projective_transformer(self.left, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left, self.rotation_left, self.translation_left)
         self.right_k_plus_one = projective_transformer(self.right, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_right, self.rotation_right, self.translation_right)
 
-#        #generat k th image
-#        self.left_k = projective_transformer_inv(self.left_next, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left_next, self.rotation_left, self.translation_left)
-#        self.right_k = projective_transformer_inv(self.right_next, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_right_next, self.rotation_right, self.translation_right)
-
         # DISPARITY SMOOTHNESS
-        self.disp_left_smoothness  = self.get_disparity_smoothness(self.disparity_left,  self.left)
-        self.disp_right_smoothness = self.get_disparity_smoothness(self.disparity_right, self.right)
+        self.disp_left_smoothness  = self.get_disparity_smoothness(self.disparity_left,  self.left_pyramid)
+        self.disp_right_smoothness = self.get_disparity_smoothness(self.disparity_right, self.right_pyramid)
 
     def build_losses(self):
         with tf.variable_scope('losses', reuse=self.reuse_variables):
             # IMAGE DIFF
             # L1
-            self.l1_left = tf.reduce_mean(tf.abs( tf.subtract(self.left_est, self.left) ))
-            self.l1_right = tf.reduce_mean(tf.abs( tf.subtract(self.right_est, self.right) ))
+            self.l1_left = [tf.abs( self.left_est[i] - self.left_pyramid[i]) for i in range(4)]
+            self.l1_reconstruction_loss_left  = [tf.reduce_mean(l) for l in self.l1_left]
+            self.l1_right = [tf.abs(self.right_est[i] - self.right_pyramid[i]) for i in range(4)]
+            self.l1_reconstruction_loss_right = [tf.reduce_mean(l) for l in self.l1_right]
             # SSIM
-            self.ssim_left = tf.reduce_mean(self.SSIM( self.left_est,  self.left))
-            self.ssim_right = tf.reduce_mean(self.SSIM(self.right_est, self.right))
+            self.ssim_left = [self.SSIM( self.left_est[i],  self.left_pyramid[i]) for i in range(4)]
+            self.ssim_loss_left  = [tf.reduce_mean(s) for s in self.ssim_left]
+            self.ssim_right = [self.SSIM(self.right_est[i], self.right_pyramid[i]) for i in range(4)]
+            self.ssim_loss_right = [tf.reduce_mean(s) for s in self.ssim_right]
             # PHOTOMETRIC CONSISTENCY (spatial loss)
-            self.image_loss_left  = self.params.alpha_image_loss * self.ssim_left  + (1 - self.params.alpha_image_loss) * self.l1_left
-            self.image_loss_right = self.params.alpha_image_loss * self.ssim_right + (1 - self.params.alpha_image_loss) * self.l1_right        
-            self.image_loss = self.image_loss_left + self.image_loss_right
+            self.image_loss_right = [self.params.alpha_image_loss * self.ssim_loss_right[i] + (1 - self.params.alpha_image_loss) * self.l1_reconstruction_loss_right[i] for i in range(4)]
+            self.image_loss_left  = [self.params.alpha_image_loss * self.ssim_loss_left[i]  + (1 - self.params.alpha_image_loss) * self.l1_reconstruction_loss_left[i]  for i in range(4)]
+            self.image_loss = tf.add_n(self.image_loss_left + self.image_loss_right)
 
 
             # DISPARITY DIFF
-            self.l1_disp_left = tf.reduce_mean(tf.abs( tf.subtract(self.disparity_left, self.right_to_left_disparity) ))
-            self.l1_disp_right = tf.reduce_mean(tf.abs( tf.subtract(self.disparity_right, self.left_to_right_disparity) ))
-            # DISPARITY CONSISTENCY
-            self.disp_loss = self.l1_disp_left + self.l1_disp_right
+            self.lr_left_loss  = [tf.reduce_mean(tf.abs(self.right_to_left_disparity[i] - self.disparity_left[i]))  for i in range(4)]
+            self.lr_right_loss = [tf.reduce_mean(tf.abs(self.left_to_right_disparity[i] - self.disparity_right[i])) for i in range(4)]
+            self.disp_loss = tf.add_n(self.lr_left_loss + self.lr_right_loss)
+
+            # DISPARITY SMOOTHNESS
+            self.disp_left_loss  = [tf.reduce_mean(tf.abs(self.disp_left_smoothness[i]))  / 2 ** i for i in range(4)]
+            self.disp_right_loss = [tf.reduce_mean(tf.abs(self.disp_right_smoothness[i])) / 2 ** i for i in range(4)]
+            self.disp_gradient_loss = tf.add_n(self.disp_left_loss + self.disp_right_loss)
 
             # POSE CONSISTENCY 
             self.l1_translation = tf.reduce_mean(tf.abs( tf.subtract(self.translation_left, self.translation_right) ))
@@ -357,27 +393,21 @@ class UndeepvoModel(object):
             # PHOTOMETRIC REGISTRATION (temporal loss)
             # L1
             self.l1_left_k_plus_one = tf.reduce_mean(tf.abs( tf.subtract(self.left_k_plus_one, self.left_next) ))
-#            self.l1_left_k = tf.reduce_mean(tf.abs( tf.subtract(self.left_k, self.left) ))
             self.l1_right_k_plus_one = tf.reduce_mean(tf.abs( tf.subtract(self.right_k_plus_one, self.right_next) ))
-#            self.l1_right_k = tf.reduce_mean(tf.abs( tf.subtract(self.right_k, self.right) )) 
-            self.l1_left_temporal = self.l1_left_k_plus_one #+ self.l1_left_k
-            self.l1_right_temporal = self.l1_right_k_plus_one #+ self.l1_right_k
+            self.l1_left_temporal = self.l1_left_k_plus_one 
+            self.l1_right_temporal = self.l1_right_k_plus_one 
             # SSIM
             self.ssim_left_k_plus_one = tf.reduce_mean(self.SSIM( self.left_k_plus_one,  self.left_next))
-#            self.ssim_left_k = tf.reduce_mean(self.SSIM( self.left_k,  self.left))
             self.ssim_right_k_plus_one = tf.reduce_mean(self.SSIM( self.right_k_plus_one,  self.right_next))
-#            self.ssim_right_k = tf.reduce_mean(self.SSIM( self.right_k,  self.right))
-            self.ssim_left_temporal = self.ssim_left_k_plus_one #+ self.ssim_left_k       
-            self.ssim_right_temporal = self.ssim_right_k_plus_one #+ self.ssim_right_k            
+            self.ssim_left_temporal = self.ssim_left_k_plus_one     
+            self.ssim_right_temporal = self.ssim_right_k_plus_one 
+          
             # Temporal LOSS
             self.image_loss_left_temporal  = self.params.alpha_image_loss * self.ssim_left_temporal  + (1 - self.params.alpha_image_loss) * self.l1_left_temporal
             self.image_loss_right_temporal  = self.params.alpha_image_loss * self.ssim_right_temporal  + (1 - self.params.alpha_image_loss) * self.l1_right_temporal
             self.image_loss_temporal = self.image_loss_left_temporal + self.image_loss_right_temporal
             
-            # DISPARITY SMOOTHNESS
-            self.disp_left_loss  = tf.reduce_mean(tf.abs(self.disp_left_smoothness))
-            self.disp_right_loss = tf.reduce_mean(tf.abs(self.disp_right_smoothness))
-            self.disp_gradient_loss = self.disp_left_loss + self.disp_right_loss
+
 
             # TOTAL LOSS
             self.total_loss = self.params.image_loss_weight * self.image_loss + self.params.disp_loss_weight * self.disp_loss + self.params.pose_loss_weight * self.pose_loss + self.params.temporal_loss_weight * self.image_loss_temporal + self.params.gradient_loss_weight * self.disp_gradient_loss
@@ -391,19 +421,21 @@ class UndeepvoModel(object):
             tf.summary.scalar('disp_loss', self.disp_loss, collections=self.model_collection)
             tf.summary.scalar('pose_loss', self.pose_loss, collections=self.model_collection)
             tf.summary.scalar('disp_gradient_loss', self.disp_gradient_loss, collections=self.model_collection)
-            tf.summary.image('left_est',  self.left_est,   max_outputs=1, collections=self.model_collection)
-            tf.summary.image('disparity_left', self.disparity_left,  max_outputs=1, collections=self.model_collection)
             tf.summary.image('left_k_plus_one',  self.left_k_plus_one,   max_outputs=1, collections=self.model_collection)
             tf.summary.image('left', self.left,  max_outputs=1, collections=self.model_collection)
             tf.summary.image('left_next',  self.left_next,   max_outputs=1, collections=self.model_collection)
 
-            if self.params.full_summary:
-                tf.summary.image('left_est', self.left_est, max_outputs=4, collections=self.model_collection)
-                tf.summary.image('right_est', self.right_est, max_outputs=4, collections=self.model_collection)
-                tf.summary.image('ssim_left', self.ssim_left,  max_outputs=4, collections=self.model_collection)
-                tf.summary.image('ssim_right', self.ssim_right, max_outputs=4, collections=self.model_collection)
-                tf.summary.image('l1_left', self.l1_left,  max_outputs=4, collections=self.model_collection)
-                tf.summary.image('l1_right', self.l1_right, max_outputs=4, collections=self.model_collection)
-                tf.summary.image('left',  self.left,   max_outputs=4, collections=self.model_collection)
-                tf.summary.image('right', self.right,  max_outputs=4, collections=self.model_collection)
+            for i in range(4):
+                tf.summary.image('left_est_'  + str(i), self.left_est[i], max_outputs=4, collections=self.model_collection)
+                tf.summary.image('disparity_left' + str(i), self.disparity_left[i],  max_outputs=4, collections=self.model_collection)
+
+#            if self.params.full_summary:
+#                tf.summary.image('left_est', self.left_est, max_outputs=4, collections=self.model_collection)
+#                tf.summary.image('right_est', self.right_est, max_outputs=4, collections=self.model_collection)
+#                tf.summary.image('ssim_left', self.ssim_left,  max_outputs=4, collections=self.model_collection)
+#                tf.summary.image('ssim_right', self.ssim_right, max_outputs=4, collections=self.model_collection)
+#                tf.summary.image('l1_left', self.l1_left,  max_outputs=4, collections=self.model_collection)
+#                tf.summary.image('l1_right', self.l1_right, max_outputs=4, collections=self.model_collection)
+#                tf.summary.image('left',  self.left,   max_outputs=4, collections=self.model_collection)
+#                tf.summary.image('right', self.right,  max_outputs=4, collections=self.model_collection)
 
