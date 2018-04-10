@@ -121,30 +121,35 @@ class UndeepvoModel(object):
         return tf.clip_by_value((1 - SSIM) / 2, 0, 1)
 
     def upsample_nn(self, input, ratio):
-        s = tf.shape(input)
+        s = input.get_shape().as_list()
         h = s[1]
         w = s[2]
-        output = Lambda(lambda x: tf.image.resize_nearest_neighbor(x, [h * ratio, w * ratio]))(input)
-        output_shape = output._keras_shape
+        nh = h * ratio
+        nw = w * ratio
+        output = Lambda(lambda x: tf.image.resize_nearest_neighbor(x, [nh, nw]))(input)
         output.set_shape(output_shape)
         return output
 
     def scale_pyramid(self, img, num_scales):
-        scaled_imgs = [img]
-#        s = tf.shape(img)        
+        scaled_imgs = [img]    
         s = img.get_shape().as_list()
         h = s[1]
         w = s[2]
+        tmp_h = h
+        tmp_w = w
+        nh = h
+        nw = w
         for i in range(num_scales - 1):
-            ratio = 2 ** (i + 1)
-            nh = h // ratio
-            nw = w // ratio
-            if  (h//(ratio//2)) % 2 != 0:
+            nh = nh // 2
+            nw = nw // 2
+            if  tmp_h % 2 != 0:
                 nh = nh +1
-            if  (w//(ratio//2)) % 2 != 0:
+            if  tmp_w % 2 != 0:
                 nw = nw +1
             scaled_imgs.append(tf.image.resize_area(img, [nh, nw]))
             scaled_imgs[i+1].set_shape([s[0],nh,nw,s[3]])
+            tmp_h = nh
+            tmp_w = nw
         return scaled_imgs
 
     def get_disp(self, x):
@@ -185,6 +190,8 @@ class UndeepvoModel(object):
         deconv1 = self.deconv(input, channels, kernel_size, 2)
         if skip is not None:
             s = skip.shape
+#            print(s)
+#            print(deconv1.shape)
             if  s[1] % 2 != 0:
                 deconv1 = Lambda(lambda x: x[:,:-1,:,:])(deconv1)
             if  s[2] % 2 != 0:
@@ -195,7 +202,7 @@ class UndeepvoModel(object):
             concat1 = deconv1
 
         iconv1 = self.conv(concat1, channels, kernel_size, 1)
-
+#        print(iconv1.shape)
         return iconv1
 
 
@@ -218,13 +225,9 @@ class UndeepvoModel(object):
 
         conv7 = self.conv(conv6, 512, 3, 2, activation='relu')
 
-#        flat1 = Flatten()(conv7)
         dim = np.prod(conv7.shape[1:])
 
-#        print(conv7)
-#        flat1 = tf.reshape(conv7, [-1, dim])
         flat1 = Lambda(lambda x: tf.reshape(x, [-1, dim]))(conv7)
-#        print(flat1)
 
         # translation
 
@@ -243,7 +246,6 @@ class UndeepvoModel(object):
         fc3_rot = Dense(3, input_shape=(512,))(fc2_rot)
 
         
-#        return fc3_tran, fc3_rot
         self.pose_model = Model(input, [fc3_tran, fc3_rot])
 
     def build_depth_architecture(self):
@@ -256,6 +258,7 @@ class UndeepvoModel(object):
         conv2 = self.conv_block(conv1, 64, 5)
 
         conv3 = self.conv_block(conv2, 128, 3)
+
 
         conv4 = self.conv_block(conv3, 256, 3)
 
@@ -283,7 +286,7 @@ class UndeepvoModel(object):
         deconv6 = self.deconv_block(deconv7, 512, 3, skip5)
 
         deconv5 = self.deconv_block(deconv6, 256, 3, skip4)
-
+        
         deconv4 = self.deconv_block(deconv5, 128, 3, skip3)
         disp4 = self.get_disp(deconv4)
 #        udisp4  = self.upsample_nn(disp4, 2)
@@ -336,6 +339,9 @@ class UndeepvoModel(object):
         if self.mode == 'test':
             return
 
+#        [print(self.disparity_left[i]) for i in range(4)]
+#        [print(self.left_pyramid[i]) for i in range(4)]
+    
         # generate depth maps
         self.depthmap_left = disparity_to_depth(self.disparity_left[0], self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left')
         self.depthmap_right = disparity_to_depth(self.disparity_right[0], self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_right')
@@ -410,8 +416,8 @@ class UndeepvoModel(object):
 
 
             # TOTAL LOSS
-            self.total_loss = self.params.image_loss_weight * self.image_loss + self.params.disp_loss_weight * self.disp_loss + self.params.pose_loss_weight * self.pose_loss + self.params.temporal_loss_weight * self.image_loss_temporal + self.params.gradient_loss_weight * self.disp_gradient_loss
-#            self.total_loss = self.image_loss + self.disp_loss + self.pose_loss
+            self.total_loss = self.params.image_loss_weight * self.image_loss + self.params.disp_loss_weight * self.disp_loss + self.params.pose_loss_weight * self.pose_loss + self.params.temporal_loss_weight * self.image_loss_temporal 
+#+ self.params.gradient_loss_weight * self.disp_gradient_loss
 
     def build_summaries(self):
         # SUMMARIES
