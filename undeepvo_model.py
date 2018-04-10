@@ -29,13 +29,14 @@ undeepvo_parameters = namedtuple('parameters',
 class UndeepvoModel(object):
     """undeepvo model"""
 
-    def __init__(self, params, mode, left, right, left_next, right_next, reuse_variables=None, model_index=0):
+    def __init__(self, params, mode, left, right, left_next, right_next, cam_params, reuse_variables=None, model_index=0):
         self.params = params
         self.mode = mode
         self.left = left
         self.right = right
         self.left_next = left_next
         self.right_next = right_next
+        self.cam_params = cam_params
         self.model_collection = ['model_' + str(model_index)]
 
         self.reuse_variables = reuse_variables

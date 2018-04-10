@@ -96,12 +96,14 @@ def train(params):
         right = dataloader.right_image_batch
         left_next  = dataloader.left_next_image_batch
         right_next = dataloader.right_next_image_batch
+        cam_params = dataloader.cam_params_batch
 
         # split for each gpu
         left_splits  = tf.split(left,  args.num_gpus, 0)
         right_splits = tf.split(right, args.num_gpus, 0)
         left_next_splits  = tf.split(left_next,  args.num_gpus, 0)
         right_next_splits = tf.split(right_next, args.num_gpus, 0)
+        cam_params_splits = tf.split(cam_params, args.num_gpus, 0)
 
         tower_grads  = []
         tower_losses = []
@@ -110,7 +112,7 @@ def train(params):
             for i in range(args.num_gpus):
                 with tf.device('/gpu:%d' % i):
 
-                    model = UndeepvoModel(params, args.mode, left_splits[i], right_splits[i], left_next_splits[i], right_next_splits[i], reuse_variables, i)
+                    model = UndeepvoModel(params, args.mode, left_splits[i], right_splits[i], left_next_splits[i], right_next_splits[i], cam_params_splits[i], reuse_variables, i)
 
                     loss = model.total_loss
                     tower_losses.append(loss)

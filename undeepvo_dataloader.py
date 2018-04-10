@@ -21,13 +21,14 @@ class UndeepvoDataloader(object):
         self.right_image_batch = None
         self.left_next_image_batch  = None
         self.right_next_image_batch = None
+        self.cam_params_batch = None
 
         input_queue = tf.train.string_input_producer([filenames_file], shuffle=False)
         line_reader = tf.TextLineReader()
         _, line = line_reader.read(input_queue)
 
         split_line = tf.string_split([line]).values
-
+        
         # we load only one image for test, except if we trained a stereo model
         if mode == 'test':
             left_image_path  = tf.string_join([self.data_path, split_line[0]])
@@ -37,10 +38,13 @@ class UndeepvoDataloader(object):
             right_image_path = tf.string_join([self.data_path, split_line[1]])
             left_next_image_path  = tf.string_join([self.data_path, split_line[2]])
             right_next_image_path = tf.string_join([self.data_path, split_line[3]])
+            cam_params = tf.string_to_number(split_line[4:])
+
             left_image_o  = self.read_image(left_image_path)
             right_image_o = self.read_image(right_image_path)
             left_next_image_o  = self.read_image(left_next_image_path)
             right_next_image_o = self.read_image(right_next_image_path)
+
 
         if mode == 'train':
             # randomly flip images
@@ -54,18 +58,16 @@ class UndeepvoDataloader(object):
             do_augment  = tf.random_uniform([], 0, 1)
             left_image, right_image, left_next_image, right_next_image = tf.cond(do_augment > 0.5, lambda: self.augment_image_pair(left_image, right_image, left_next_image, right_next_image), lambda: (left_image, right_image, left_next_image, right_next_image))
 
-
             left_image.set_shape( [self.new_height, self.new_width, 3])
             right_image.set_shape([self.new_height, self.new_width, 3])
             left_next_image.set_shape( [self.new_height, self.new_width, 3])
             right_next_image.set_shape([self.new_height, self.new_width, 3])
-
-
-#            print(left_image_o.shape)
+            cam_params.set_shape([7])
+ 
             # capacity = min_after_dequeue + (num_threads + a small safety margin) * batch_size
             min_after_dequeue = 2048
             capacity = min_after_dequeue + 4 * params.batch_size
-            self.left_image_batch, self.right_image_batch, self.left_next_image_batch, self.right_next_image_batch = tf.train.shuffle_batch([left_image, right_image, left_next_image, right_next_image], params.batch_size, capacity, min_after_dequeue, params.num_threads)
+            self.left_image_batch, self.right_image_batch, self.left_next_image_batch, self.right_next_image_batch, self.cam_params_batch = tf.train.shuffle_batch([left_image, right_image, left_next_image, right_next_image, cam_params], params.batch_size, capacity, min_after_dequeue, params.num_threads)
 
         elif mode == 'test':
             self.left_image_batch = tf.stack([left_image_o,  tf.image.flip_left_right(left_image_o)],  0)
