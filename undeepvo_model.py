@@ -386,15 +386,15 @@ class UndeepvoModel(object):
             self.lr_right_loss = [tf.reduce_mean(tf.abs(self.left_to_right_disparity[i] - self.disparity_right[i])) for i in range(4)]
             self.disp_loss = tf.add_n(self.lr_left_loss + self.lr_right_loss)
 
-            # DISPARITY SMOOTHNESS
-            self.disp_left_loss  = [tf.reduce_mean(tf.abs(self.disp_left_smoothness[i]))  / 2 ** i for i in range(4)]
-            self.disp_right_loss = [tf.reduce_mean(tf.abs(self.disp_right_smoothness[i])) / 2 ** i for i in range(4)]
-            self.disp_gradient_loss = tf.add_n(self.disp_left_loss + self.disp_right_loss)
+#            # DISPARITY SMOOTHNESS
+#            self.disp_left_loss  = [tf.reduce_mean(tf.abs(self.disp_left_smoothness[i]))  / 2 ** i for i in range(4)]
+#            self.disp_right_loss = [tf.reduce_mean(tf.abs(self.disp_right_smoothness[i])) / 2 ** i for i in range(4)]
+#            self.disp_gradient_loss = tf.add_n(self.disp_left_loss + self.disp_right_loss)
 
-            # POSE CONSISTENCY 
-            self.l1_translation = tf.reduce_mean(tf.abs( tf.subtract(self.translation_left, self.translation_right) ))
-            self.l1_rotation = tf.reduce_mean(tf.abs( tf.subtract(self.rotation_left, self.rotation_right) ))
-            self.pose_loss = self.l1_translation + self.l1_rotation
+#            # POSE CONSISTENCY 
+#            self.l1_translation = tf.reduce_mean(tf.abs( tf.subtract(self.translation_left, self.translation_right) ))
+#            self.l1_rotation = tf.reduce_mean(tf.abs( tf.subtract(self.rotation_left, self.rotation_right) ))
+#            self.pose_loss = self.l1_translation + self.l1_rotation
 
             # PHOTOMETRIC REGISTRATION (temporal loss)
             # L1
@@ -416,7 +416,8 @@ class UndeepvoModel(object):
 
 
             # TOTAL LOSS
-            self.total_loss = self.params.image_loss_weight * self.image_loss + self.params.disp_loss_weight * self.disp_loss + self.params.pose_loss_weight * self.pose_loss + self.params.temporal_loss_weight * self.image_loss_temporal 
+            self.total_loss = self.params.image_loss_weight * self.image_loss + self.params.disp_loss_weight * self.disp_loss + self.params.temporal_loss_weight * self.image_loss_temporal
+#+ self.params.pose_loss_weight * self.pose_loss 
 #+ self.params.gradient_loss_weight * self.disp_gradient_loss
 
     def build_summaries(self):
@@ -425,8 +426,8 @@ class UndeepvoModel(object):
             tf.summary.scalar('image_loss', self.image_loss, collections=self.model_collection)
             tf.summary.scalar('image_loss_temporal', self.image_loss_temporal, collections=self.model_collection)
             tf.summary.scalar('disp_loss', self.disp_loss, collections=self.model_collection)
-            tf.summary.scalar('pose_loss', self.pose_loss, collections=self.model_collection)
-            tf.summary.scalar('disp_gradient_loss', self.disp_gradient_loss, collections=self.model_collection)
+#            tf.summary.scalar('pose_loss', self.pose_loss, collections=self.model_collection)
+#            tf.summary.scalar('disp_gradient_loss', self.disp_gradient_loss, collections=self.model_collection)
             tf.summary.image('left_k_plus_one',  self.left_k_plus_one,   max_outputs=1, collections=self.model_collection)
             tf.summary.image('left', self.left,  max_outputs=1, collections=self.model_collection)
             tf.summary.image('left_next',  self.left_next,   max_outputs=1, collections=self.model_collection)

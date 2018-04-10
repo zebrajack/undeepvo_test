@@ -43,42 +43,48 @@ class UndeepvoDataloader(object):
             right_next_image_o = self.read_image(right_next_image_path)
 
         if mode == 'train':
-#            # randomly flip images
-#            do_flip = tf.random_uniform([], 0, 1)
-#            left_image  = tf.cond(do_flip > 0.5, lambda: tf.image.flip_left_right(right_image_o), lambda: left_image_o)
-#            right_image = tf.cond(do_flip > 0.5, lambda: tf.image.flip_left_right(left_image_o),  lambda: right_image_o)
+            # randomly flip images
+            do_flip = tf.random_uniform([], 0, 1)
+            left_image  = tf.cond(do_flip > 0.5, lambda: tf.image.flip_left_right(right_image_o), lambda: left_image_o)
+            right_image = tf.cond(do_flip > 0.5, lambda: tf.image.flip_left_right(left_image_o),  lambda: right_image_o)
+            left_next_image  = tf.cond(do_flip > 0.5, lambda: tf.image.flip_left_right(right_next_image_o), lambda: left_next_image_o)
+            right_next_image = tf.cond(do_flip > 0.5, lambda: tf.image.flip_left_right(left_next_image_o),  lambda: right_next_image_o)
 
-#            # randomly augment images
-#            do_augment  = tf.random_uniform([], 0, 1)
-#            left_image, right_image = tf.cond(do_augment > 0.5, lambda: self.augment_image_pair(left_image, right_image), lambda: (left_image, right_image))
+            # randomly augment images
+            do_augment  = tf.random_uniform([], 0, 1)
+            left_image, right_image, left_next_image, right_next_image = tf.cond(do_augment > 0.5, lambda: self.augment_image_pair(left_image, right_image, left_next_image, right_next_image), lambda: (left_image, right_image, left_next_image, right_next_image))
 
 
-            left_image_o.set_shape( [self.new_height, self.new_width, 3])
-            right_image_o.set_shape([self.new_height, self.new_width, 3])
-            left_next_image_o.set_shape( [self.new_height, self.new_width, 3])
-            right_next_image_o.set_shape([self.new_height, self.new_width, 3])
+            left_image.set_shape( [self.new_height, self.new_width, 3])
+            right_image.set_shape([self.new_height, self.new_width, 3])
+            left_next_image.set_shape( [self.new_height, self.new_width, 3])
+            right_next_image.set_shape([self.new_height, self.new_width, 3])
 
 
 #            print(left_image_o.shape)
             # capacity = min_after_dequeue + (num_threads + a small safety margin) * batch_size
             min_after_dequeue = 2048
             capacity = min_after_dequeue + 4 * params.batch_size
-            self.left_image_batch, self.right_image_batch, self.left_next_image_batch, self.right_next_image_batch = tf.train.shuffle_batch([left_image_o, right_image_o, left_next_image_o, right_next_image_o], params.batch_size, capacity, min_after_dequeue, params.num_threads)
-#            self.left_image_batch, self.right_image_batch = tf.train.shuffle_batch([left_image_o, right_image_o], params.batch_size, capacity, min_after_dequeue, params.num_threads)
+            self.left_image_batch, self.right_image_batch, self.left_next_image_batch, self.right_next_image_batch = tf.train.shuffle_batch([left_image, right_image, left_next_image, right_next_image], params.batch_size, capacity, min_after_dequeue, params.num_threads)
+
         elif mode == 'test':
             self.left_image_batch = tf.stack([left_image_o,  tf.image.flip_left_right(left_image_o)],  0)
             self.left_image_batch.set_shape( [2, None, None, 3])
 
-    def augment_image_pair(self, left_image, right_image):
+    def augment_image_pair(self, left_image, right_image, left_next_image, right_next_image):
         # randomly shift gamma
         random_gamma = tf.random_uniform([], 0.8, 1.2)
         left_image_aug  = left_image  ** random_gamma
         right_image_aug = right_image ** random_gamma
+        left_next_image_aug  = left_next_image  ** random_gamma
+        right_next_image_aug = right_next_image ** random_gamma
 
         # randomly shift brightness
         random_brightness = tf.random_uniform([], 0.5, 2.0)
         left_image_aug  =  left_image_aug * random_brightness
         right_image_aug = right_image_aug * random_brightness
+        left_next_image_aug  =  left_next_image_aug * random_brightness
+        right_next_image_aug = right_next_image_aug * random_brightness
 
         # randomly shift color
         random_colors = tf.random_uniform([3], 0.8, 1.2)
@@ -86,12 +92,16 @@ class UndeepvoDataloader(object):
         color_image = tf.stack([white * random_colors[i] for i in range(3)], axis=2)
         left_image_aug  *= color_image
         right_image_aug *= color_image
+        left_next_image_aug  *= color_image
+        right_next_image_aug *= color_image
 
         # saturate
         left_image_aug  = tf.clip_by_value(left_image_aug,  0, 1)
         right_image_aug = tf.clip_by_value(right_image_aug, 0, 1)
+        left_next_image_aug  = tf.clip_by_value(left_next_image_aug,  0, 1)
+        right_next_image_aug = tf.clip_by_value(right_next_image_aug, 0, 1)
 
-        return left_image_aug, right_image_aug
+        return left_image_aug, right_image_aug, left_next_image_aug, right_next_image_aug
 
     def read_image(self, image_path):
         # tf.decode_image does not return the image size, this is an ugly workaround to handle both jpeg and png
