@@ -1,9 +1,12 @@
 %generating training txt file
 % image_left, image_right, image_left_next, image_right, 
 % left_focal_length, left_c0, left_c1, 
-% right_focal_length, right_c0, right_c1, base_line 
+% right_focal_length, right_c0, right_c1
+% base_line, width, height 
 
 data_num = [4540,1100,4660];
+image_dims = [376, 376, 376;
+              1241, 1241, 1241];
 
 left_focal_length = zeros(1,numel(data_num));
 right_focal_length = zeros(1,numel(data_num));
@@ -37,9 +40,9 @@ for dnum=1:numel(data_num)
         fprintf(save_fid, 'sequences/%02d/image_3/%06d.png ', dnum-1, iter-1);
         fprintf(save_fid, 'sequences/%02d/image_2/%06d.png ', dnum-1, iter);
         fprintf(save_fid, 'sequences/%02d/image_3/%06d.png ', dnum-1, iter);
-        fprintf(save_fid, '%f  %f %f ', left_focal_length(dnum), left_c0(dnum), left_c1(dnum));
-        fprintf(save_fid, '%f  %f %f ', right_focal_length(dnum), right_c0(dnum), right_c1(dnum));
-        fprintf(save_fid, '%f ', base_line(dnum));
+        fprintf(save_fid, '%f %f %f ', left_focal_length(dnum), left_c0(dnum), left_c1(dnum));
+        fprintf(save_fid, '%f %f %f ', right_focal_length(dnum), right_c0(dnum), right_c1(dnum));
+        fprintf(save_fid, '%f %f %f ', base_line(dnum), image_dims(1,dnum), image_dims(2,dnum));
         fprintf(save_fid, '\n');
     end
 end

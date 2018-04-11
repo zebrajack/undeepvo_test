@@ -38,14 +38,22 @@ class UndeepvoDataloader(object):
             right_image_path = tf.string_join([self.data_path, split_line[1]])
             left_next_image_path  = tf.string_join([self.data_path, split_line[2]])
             right_next_image_path = tf.string_join([self.data_path, split_line[3]])
-            cam_params = tf.string_to_number(split_line[4:])
+            cam_params = tf.string_to_number(split_line[4:11])
+            height_o = tf.string_to_number(split_line[11])
+            width_o = tf.string_to_number(split_line[12])
 
             left_image_o  = self.read_image(left_image_path)
             right_image_o = self.read_image(right_image_path)
             left_next_image_o  = self.read_image(left_next_image_path)
             right_next_image_o = self.read_image(right_next_image_path)
 
-
+            # set cam_params shape
+            cam_params = tf.reshape(cam_params, [7])
+            cam_params = tf.expand_dims(cam_params,0)
+            h_tensor = tf.expand_dims(tf.cast(tf.constant([self.params.height]), tf.float32),0)
+            w_tensor = tf.expand_dims(tf.cast(tf.constant([self.params.width]), tf.float32),0)
+            cam_params = tf.squeeze(tf.concat([cam_params, h_tensor/height_o, w_tensor/width_o],1))
+#            print(h_tensor/height_o)
         if mode == 'train':
             # randomly flip images
             do_flip = tf.random_uniform([], 0, 1)
@@ -58,11 +66,11 @@ class UndeepvoDataloader(object):
             do_augment  = tf.random_uniform([], 0, 1)
             left_image, right_image, left_next_image, right_next_image = tf.cond(do_augment > 0.5, lambda: self.augment_image_pair(left_image, right_image, left_next_image, right_next_image), lambda: (left_image, right_image, left_next_image, right_next_image))
 
-            left_image.set_shape( [self.new_height, self.new_width, 3])
-            right_image.set_shape([self.new_height, self.new_width, 3])
-            left_next_image.set_shape( [self.new_height, self.new_width, 3])
-            right_next_image.set_shape([self.new_height, self.new_width, 3])
-            cam_params.set_shape([7])
+            # set image shape
+            left_image.set_shape( [self.params.height, self.params.width, 3])
+            right_image.set_shape([self.params.height, self.params.width, 3])
+            left_next_image.set_shape( [self.params.height, self.params.width, 3])
+            right_next_image.set_shape([self.params.height, self.params.width, 3])
  
             # capacity = min_after_dequeue + (num_threads + a small safety margin) * batch_size
             min_after_dequeue = 2048
@@ -120,8 +128,6 @@ class UndeepvoDataloader(object):
             image  =  image[:crop_height,:,:]
 
         image  = tf.image.convert_image_dtype(image,  tf.float32) 
-        self.new_width = int(float(self.params.width)*self.params.resize_ratio)
-        self.new_height = int(float(self.params.height)*self.params.resize_ratio)
-        image  = tf.image.resize_images(image,  [self.new_height, self.new_width], tf.image.ResizeMethod.AREA)
+        image  = tf.image.resize_images(image,  [self.params.height, self.params.width], tf.image.ResizeMethod.AREA)
 
         return image

@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function
 import tensorflow as tf
 from keras.layers import Lambda
 
-def projective_transformer(input_images, focal_length, c0, c1, depthmap, rotation, translation, wrap_mode='border', name='projective_transformer', **kwargs):
+def projective_transformer(input_images, f0, f1, c0, c1, depthmap, rotation, translation, wrap_mode='border', name='projective_transformer', **kwargs):
 
     def _output_shape0(input_shape):
         shape = list(input_shape[0])
@@ -99,9 +99,62 @@ def projective_transformer(input_images, focal_length, c0, c1, depthmap, rotatio
             weight_11 = weight_r*weight_u
 
             return weight_00 * pix_00 + weight_01 * pix_01 + weight_10 * pix_10 + weight_11 * pix_11
-#            return weight_l * pix_l + weight_r * pix_r
 
-    def _transform(input_images, depthmap, rotation, translation):
+#    def _transform(input_images, depthmap, rotation, translation):
+#        with tf.variable_scope('transform'):
+#            # grid of (x_t, y_t, 1), eq (1) in ref [1]
+#            x_t, y_t = tf.meshgrid(tf.linspace(0.0,   _width_f - 1.0,  _width),
+#                                   tf.linspace(0.0 , _height_f - 1.0 , _height))
+
+#            x_t_flat = tf.reshape(x_t, (1, -1))
+#            y_t_flat = tf.reshape(y_t, (1, -1))
+
+#            x_t_flat = tf.tile(x_t_flat, tf.stack([_num_batch, 1]))
+#            y_t_flat = tf.tile(y_t_flat, tf.stack([_num_batch, 1]))
+#            
+#            x_t_flat = tf.reshape(x_t_flat, [-1])
+#            y_t_flat = tf.reshape(y_t_flat, [-1])
+
+#            # flatten depthmap
+#            depthmap_flat = tf.reshape(depthmap,[-1])
+
+#            # get R_mat and t_mat
+#            roll = rotation[:,0]
+#            pitch = rotation[:,1]
+#            yaw = rotation[:,2]
+#            R_mat = _rpy_to_mat(roll,pitch,yaw)
+##            Rt_mat = tf.transpose(R_mat,perm=[0, 2, 1])
+
+#            t_mat = tf.reshape(translation,(_num_batch,3,1))
+#            t_mat = tf.tile(t_mat, tf.stack([1,1,_width*_height]))
+
+# 
+#            # transform to new image plan
+#            x_unproject = Lambda(lambda x: x[1]*(x[0]-_c0)/_focal_length, output_shape=_output_shape)([x_t_flat, depthmap_flat])
+#            y_unproject = Lambda(lambda x: x[1]*(x[0]-_c1)/_focal_length, output_shape=_output_shape)([y_t_flat, depthmap_flat])
+#            
+#            x_unproject = tf.reshape(x_unproject,[8,-1])
+#            y_unproject = tf.reshape(y_unproject,[8,-1])
+#            z_unproject = tf.reshape(depthmap_flat,[8,-1])
+#            
+#            xyz = tf.stack([x_unproject,y_unproject,z_unproject], axis=1)
+
+#            xyz_transformed = tf.add(tf.matmul(R_mat,xyz),t_mat)
+
+#            x_transformed = tf.reshape(xyz_transformed[:,0,:],[-1])
+#            y_transformed = tf.reshape(xyz_transformed[:,1,:],[-1])
+#            z_transformed = tf.reshape(xyz_transformed[:,2,:],[-1])
+
+#            x_t_flat = Lambda(lambda x: _c0+_focal_length*x[0]/x[1], output_shape=_output_shape)([x_transformed,z_transformed])
+#            y_t_flat = Lambda(lambda x: _c1+_focal_length*x[0]/x[1], output_shape=_output_shape)([y_transformed,z_transformed])      
+
+#            input_transformed = _interpolate(input_images, x_t_flat, y_t_flat)
+
+#            output = tf.reshape(
+#                input_transformed, [_num_batch, _height, _width, _num_channels])
+#            return output
+
+    def _transform(input_images, depthmap, rotation, translation, f0, f1, c0, c1):
         with tf.variable_scope('transform'):
             # grid of (x_t, y_t, 1), eq (1) in ref [1]
             x_t, y_t = tf.meshgrid(tf.linspace(0.0,   _width_f - 1.0,  _width),
@@ -124,15 +177,23 @@ def projective_transformer(input_images, focal_length, c0, c1, depthmap, rotatio
             pitch = rotation[:,1]
             yaw = rotation[:,2]
             R_mat = _rpy_to_mat(roll,pitch,yaw)
-#            Rt_mat = tf.transpose(R_mat,perm=[0, 2, 1])
 
             t_mat = tf.reshape(translation,(_num_batch,3,1))
             t_mat = tf.tile(t_mat, tf.stack([1,1,_width*_height]))
 
- 
+            # get focal_length, principal0, principal1
+            f0 = tf.tile(tf.reshape(f0,(_num_batch,1)), tf.stack([1,_width*_height]))
+            f1 = tf.tile(tf.reshape(f1,(_num_batch,1)), tf.stack([1,_width*_height]))
+            c0 = tf.tile(tf.reshape(c0,(_num_batch,1)), tf.stack([1,_width*_height]))
+            c1 = tf.tile(tf.reshape(c1,(_num_batch,1)), tf.stack([1,_width*_height]))
+            f0 = tf.reshape(f0,[-1])
+            f1 = tf.reshape(f1,[-1])
+            c0 = tf.reshape(c0,[-1])
+            c1 = tf.reshape(c1,[-1])
+
             # transform to new image plan
-            x_unproject = Lambda(lambda x: x[1]*(x[0]-_c0)/_focal_length, output_shape=_output_shape)([x_t_flat, depthmap_flat])
-            y_unproject = Lambda(lambda x: x[1]*(x[0]-_c1)/_focal_length, output_shape=_output_shape)([y_t_flat, depthmap_flat])
+            x_unproject = Lambda(lambda x: x[1]*(x[0]-x[3])/x[2], output_shape=_output_shape)([x_t_flat, depthmap_flat, f0, c0])
+            y_unproject = Lambda(lambda x: x[1]*(x[0]-x[3])/x[2], output_shape=_output_shape)([y_t_flat, depthmap_flat, f1, c1])
             
             x_unproject = tf.reshape(x_unproject,[8,-1])
             y_unproject = tf.reshape(y_unproject,[8,-1])
@@ -146,14 +207,15 @@ def projective_transformer(input_images, focal_length, c0, c1, depthmap, rotatio
             y_transformed = tf.reshape(xyz_transformed[:,1,:],[-1])
             z_transformed = tf.reshape(xyz_transformed[:,2,:],[-1])
 
-            x_t_flat = Lambda(lambda x: _c0+_focal_length*x[0]/x[1], output_shape=_output_shape)([x_transformed,z_transformed])
-            y_t_flat = Lambda(lambda x: _c1+_focal_length*x[0]/x[1], output_shape=_output_shape)([y_transformed,z_transformed])      
+            x_t_flat = Lambda(lambda x: x[3]+x[2]*x[0]/x[1], output_shape=_output_shape)([x_transformed,z_transformed,f0,c0])
+            y_t_flat = Lambda(lambda x: x[3]+x[2]*x[0]/x[1], output_shape=_output_shape)([y_transformed,z_transformed,f1,c1])      
 
             input_transformed = _interpolate(input_images, x_t_flat, y_t_flat)
 
             output = tf.reshape(
                 input_transformed, [_num_batch, _height, _width, _num_channels])
             return output
+
 
     with tf.variable_scope(name):
         _num_batch    = input_images.shape[0]
@@ -166,11 +228,11 @@ def projective_transformer(input_images, focal_length, c0, c1, depthmap, rotatio
 
         _wrap_mode = wrap_mode
 
-        _focal_length = focal_length
-        _c0 = c0
-        _c1 = c1
+#        _focal_length = focal_length
+#        _c0 = c0
+#        _c1 = c1
 
         
-
-        output = _transform(input_images, depthmap, rotation, translation)
+#        output = _transform(input_images, depthmap, rotation, translation)
+        output = _transform(input_images, depthmap, rotation, translation, f0, f1, c0, c1)
         return output

@@ -24,8 +24,8 @@ parser.add_argument('--model_name',                type=str,   help='model name'
 parser.add_argument('--dataset',                   type=str,   help='dataset to train on, kitti, or cityscapes', default='kitti')
 parser.add_argument('--data_path',                 type=str,   help='path to the data', required=True)
 parser.add_argument('--filenames_file',            type=str,   help='path to the filenames text file', required=True)
-parser.add_argument('--input_height',              type=int,   help='input height', default=376)
-parser.add_argument('--input_width',               type=int,   help='input width', default=1241)
+parser.add_argument('--input_height',              type=int,   help='input height', default=256)
+parser.add_argument('--input_width',               type=int,   help='input width', default=512)
 parser.add_argument('--resize_ratio',              type=float, help='resize ratio', default=0.5)
 parser.add_argument('--baseline',                  type=float, help='stereo baseline', default=0.54)
 parser.add_argument('--focal_length',              type=float, help='focal length', default=718.856)
@@ -167,7 +167,7 @@ def train(params):
             before_op_time = time.time()
             _, loss_value = sess.run([apply_gradient_op, total_loss])
             duration = time.time() - before_op_time
-            if step and step % 100 == 0:
+            if step and step % 1 == 0:
                 examples_per_sec = params.batch_size / duration
                 time_sofar = (time.time() - start_time) / 3600
                 training_time_left = (num_total_steps / step - 1.0) * time_sofar
