@@ -56,7 +56,7 @@ class UndeepvoModel(object):
 
 #        self.disparity_left, self.translation_left, self.rotation_left = self.build_model(self.left,self.left_next)
 #        self.disparity_right, self.translation_right, self.rotation_right = self.build_model(self.right,self.right_next)
-        self.disparity_left, self.disparity_right, self.translation_left, self.rotation_left, self.translation_right, self.rotation_right = self.build_model(self.left, self.right, self.left_next, self.right_next)
+        self.depthmap_left, self.depthmap_right, self.translation_left, self.rotation_left, self.translation_right, self.rotation_right = self.build_model(self.left, self.right, self.left_next, self.right_next)
         
 
         self.build_outputs()
@@ -168,8 +168,9 @@ class UndeepvoModel(object):
         return disp
 
     def get_depth(self, x):
-        disp = 0.3 * self.conv(x, 1, 3, 1, activation='sigmoid')
-        return disp
+        depth = self.conv(x, 1, 3, 1, activation='sigmoid')
+        depth = Lambda(lambda x: 100.0 * x)(depth)
+        return depth
 
     @staticmethod
     def conv(input, channels, kernel_size, strides, activation='elu'):
@@ -298,17 +299,17 @@ class UndeepvoModel(object):
         deconv5 = self.deconv_block(deconv6, 256, 3, skip4)
         
         deconv4 = self.deconv_block(deconv5, 128, 3, skip3)
-        disp4 = self.get_disp(deconv4)
+        disp4 = self.get_depth(deconv4)
 #        udisp4  = self.upsample_nn(disp4, 2)
 
 #        concat3 = concatenate([skip2, udisp4], 3)
         deconv3 = self.deconv_block(deconv4, 64, 3, skip2)
-        disp3 = self.get_disp(deconv3)
+        disp3 = self.get_depth(deconv3)
 #        udisp3  = self.upsample_nn(disp3, 2)
 
 #        concat2 = concatenate([skip1, udisp3], 3)
         deconv2 = self.deconv_block(deconv3, 32, 3, skip1)
-        disp2 = self.get_disp(deconv2)
+        disp2 = self.get_depth(deconv2)
 #        udisp2  = self.upsample_nn(disp2, 2)
 
         deconv1 = self.deconv_block(deconv2, 16, 3, None)
@@ -319,7 +320,7 @@ class UndeepvoModel(object):
         if  s[2] % 2 != 0:
             deconv1 = Lambda(lambda x: x[:,:,:-1,:])(deconv1)
 
-        disp1 = self.get_disp(deconv1)
+        disp1 = self.get_depth(deconv1)
 
         disp_est  = [disp1, disp2, disp3, disp4]
 
@@ -348,16 +349,12 @@ class UndeepvoModel(object):
     def build_outputs(self):
         if self.mode == 'test':
             return
-
-#        [print(self.disparity_left[i]) for i in range(4)]
-#        [print(self.left_pyramid[i]) for i in range(4)]
     
         # generate depth maps
-        self.depthmap_left = disparity_to_depth(self.disparity_left[0], self.baseline, self.focal_length1_left, self.params.width, 'depthmap_left')
-        self.depthmap_right = disparity_to_depth(self.disparity_right[0], self.baseline, self.focal_length1_right, self.params.width, 'depthmap_right')
-#        self.depthmap_left = disparity_to_depth(self.disparity_left[0], self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_left')
-#        self.depthmap_right = disparity_to_depth(self.disparity_right[0], self.params.baseline, self.params.focal_length*self.params.resize_ratio, self.params.width*self.params.resize_ratio, 'disparity_right')
-
+#        self.depthmap_left = disparity_to_depth(self.disparity_left[0], self.baseline, self.focal_length1_left, self.params.width, 'depthmap_left')
+#        self.depthmap_right = disparity_to_depth(self.disparity_right[0], self.baseline, self.focal_length1_right, self.params.width, 'depthmap_right')
+        self.disparity_left = [disparity_to_depth(self.depthmap_left[i], self.baseline, self.focal_length1_left, self.params.width, 'depthmap_left') for i in range(4)]
+        self.disparity_right = [disparity_to_depth(self.depthmap_right[i], self.baseline, self.focal_length1_right, self.params.width, 'depthmap_right') for i in range(4)]
         # generate estimates of left and right images
         self.left_est  = [self.generate_image_left(self.right_pyramid[i], self.disparity_right[i]) for i in range(4)]
         self.right_est = [self.generate_image_right(self.left_pyramid[i], self.disparity_left[i]) for i in range(4)]
@@ -367,10 +364,8 @@ class UndeepvoModel(object):
         self.left_to_right_disparity = [self.generate_image_right(self.disparity_left[i], self.disparity_left[i]) for i in range(4)]
 
         #generate k+1 th image
-        self.left_k_plus_one = projective_transformer(self.left, self.focal_length1_left, self.focal_length2_left , self.c0_left, self.c1_left, self.depthmap_left, self.rotation_left, self.translation_left)
-        self.right_k_plus_one = projective_transformer(self.right, self.focal_length1_right, self.focal_length2_right , self.c0_right, self.c1_right, self.depthmap_right, self.rotation_right, self.translation_right)
-#        self.left_k_plus_one = projective_transformer(self.left, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_left, self.rotation_left, self.translation_left)
-#        self.right_k_plus_one = projective_transformer(self.right, self.params.focal_length*self.params.resize_ratio, self.params.c0*self.params.resize_ratio, self.params.c1*self.params.resize_ratio, self.depthmap_right, self.rotation_right, self.translation_right)
+        self.left_k_plus_one = projective_transformer(self.left, self.focal_length1_left, self.focal_length2_left , self.c0_left, self.c1_left, self.depthmap_left[0], self.rotation_left, self.translation_left)
+        self.right_k_plus_one = projective_transformer(self.right, self.focal_length1_right, self.focal_length2_right , self.c0_right, self.c1_right, self.depthmap_right[0], self.rotation_right, self.translation_right)
 
         # DISPARITY SMOOTHNESS
         self.disp_left_smoothness  = self.get_disparity_smoothness(self.disparity_left,  self.left_pyramid)
@@ -446,12 +441,14 @@ class UndeepvoModel(object):
             tf.summary.image('left_k_plus_one',  self.left_k_plus_one,   max_outputs=1, collections=self.model_collection)
             tf.summary.image('left', self.left,  max_outputs=1, collections=self.model_collection)
             tf.summary.image('left_next',  self.left_next,   max_outputs=1, collections=self.model_collection)
-            tf.summary.image('depthmap_left',  self.depthmap_left,   max_outputs=1, collections=self.model_collection)
+            
             
 
             for i in range(4):
                 tf.summary.image('left_est_'  + str(i), self.left_est[i], max_outputs=4, collections=self.model_collection)
                 tf.summary.image('disparity_left' + str(i), self.disparity_left[i],  max_outputs=4, collections=self.model_collection)
+                tf.summary.image('right_to_left_disparity' + str(i),  self.right_to_left_disparity[i],   max_outputs=4, collections=self.model_collection)
+                tf.summary.image('depthmap_left' + str(i),  self.depthmap_left[i],   max_outputs=1, collections=self.model_collection)
 
 #            if self.params.full_summary:
 #                tf.summary.image('left_est', self.left_est, max_outputs=4, collections=self.model_collection)
