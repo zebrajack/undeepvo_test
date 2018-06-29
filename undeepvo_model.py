@@ -105,11 +105,11 @@ class UndeepvoModel(object):
         image_gradients_x = [self.gradient_x(img) for img in pyramid]
         image_gradients_y = [self.gradient_y(img) for img in pyramid]
 
-        weights_x = [tf.exp(-tf.reduce_mean(tf.abs(g), 3, keepdims=True)) for g in image_gradients_x]
-        weights_y = [tf.exp(-tf.reduce_mean(tf.abs(g), 3, keepdims=True)) for g in image_gradients_y]
+        weights_x = [tf.exp(-1.0/(tf.reduce_mean(tf.abs(g), 3, keepdims=True)+0.01)) for g in image_gradients_x]
+        weights_y = [tf.exp(-1.0/(tf.reduce_mean(tf.abs(g), 3, keepdims=True)+0.01)) for g in image_gradients_y]
 
-        smoothness_x = [disp_gradients_x[i] * weights_x[i] for i in range(4)]
-        smoothness_y = [disp_gradients_y[i] * weights_y[i] for i in range(4)]
+        smoothness_x = [1.0/(disp_gradients_x[i]+1.0) * weights_x[i] for i in range(4)]
+        smoothness_y = [1.0/(disp_gradients_y[i]+1.0) * weights_y[i] for i in range(4)]
         return smoothness_x + smoothness_y
 
     def SSIM(self, x, y):
@@ -275,9 +275,11 @@ class UndeepvoModel(object):
 
         conv5 = self.conv_block(conv4, 512, 3)
 
-        conv6 = self.conv_block(conv5, 512, 3)
+        conv6 = self.conv_block(conv5, 1024, 3)
 
-        conv7 = self.conv_block(conv6, 512, 3)
+        conv7 = self.conv_block(conv6, 1024, 3)
+
+        conv8 = self.conv_block(conv7, 1024, 3)
 
         # skips
         skip1 = conv1
@@ -292,7 +294,11 @@ class UndeepvoModel(object):
 
         skip6 = conv6
 
-        deconv7 = self.deconv_block(conv7, 512, 3, skip6)
+        skip7 = conv7
+
+        deconv8 = self.deconv_block(conv8,1024,3,skip7)
+
+        deconv7 = self.deconv_block(deconv8, 1024, 3, skip6)
 
         deconv6 = self.deconv_block(deconv7, 512, 3, skip5)
 
@@ -395,10 +401,10 @@ class UndeepvoModel(object):
             self.lr_right_loss = [tf.reduce_mean(tf.abs(self.left_to_right_disparity[i] - self.disparity_right[i])) for i in range(4)]
             self.disp_loss = tf.add_n(self.lr_left_loss + self.lr_right_loss)
 
-#            # DISPARITY SMOOTHNESS
-#            self.disp_left_loss  = [tf.reduce_mean(tf.abs(self.disp_left_smoothness[i]))  / 2 ** i for i in range(4)]
-#            self.disp_right_loss = [tf.reduce_mean(tf.abs(self.disp_right_smoothness[i])) / 2 ** i for i in range(4)]
-#            self.disp_gradient_loss = tf.add_n(self.disp_left_loss + self.disp_right_loss)
+            # DISPARITY SMOOTHNESS
+            self.disp_left_loss  = [tf.reduce_mean(tf.abs(self.disp_left_smoothness[i]))  / 2 ** i for i in range(4)]
+            self.disp_right_loss = [tf.reduce_mean(tf.abs(self.disp_right_smoothness[i])) / 2 ** i for i in range(4)]
+            self.disp_gradient_loss = tf.add_n(self.disp_left_loss + self.disp_right_loss)
 
 #            # POSE CONSISTENCY 
 #            self.l1_translation = tf.reduce_mean(tf.abs( tf.subtract(self.translation_left, self.translation_right) ))
@@ -425,7 +431,7 @@ class UndeepvoModel(object):
 
 
             # TOTAL LOSS
-            self.total_loss = self.params.image_loss_weight * self.image_loss + self.params.temporal_loss_weight * self.image_loss_temporal
+            self.total_loss = self.params.image_loss_weight * self.image_loss + self.params.temporal_loss_weight * self.image_loss_temporal+ self.params.gradient_loss_weight * self.disp_gradient_loss
 #+ self.params.disp_loss_weight * self.disp_loss 
 #+ self.params.pose_loss_weight * self.pose_loss 
 #+ self.params.gradient_loss_weight * self.disp_gradient_loss
@@ -437,7 +443,7 @@ class UndeepvoModel(object):
             tf.summary.scalar('image_loss_temporal', self.image_loss_temporal, collections=self.model_collection)
 #            tf.summary.scalar('disp_loss', self.disp_loss, collections=self.model_collection)
 #            tf.summary.scalar('pose_loss', self.pose_loss, collections=self.model_collection)
-#            tf.summary.scalar('disp_gradient_loss', self.disp_gradient_loss, collections=self.model_collection)
+            tf.summary.scalar('disp_gradient_loss', self.disp_gradient_loss, collections=self.model_collection)
             tf.summary.image('left_k_plus_one',  self.left_k_plus_one,   max_outputs=1, collections=self.model_collection)
             tf.summary.image('left', self.left,  max_outputs=1, collections=self.model_collection)
             tf.summary.image('left_next',  self.left_next,   max_outputs=1, collections=self.model_collection)
