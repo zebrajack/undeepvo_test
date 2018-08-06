@@ -32,7 +32,7 @@ for dnum=1:numel(data_num)
     fclose(read_fid);
 end
 
-save_fid = fopen('kitti_train_files2.txt', 'wt');
+save_fid = fopen('../utils/filenames/kitti_train_files2.txt', 'wt');
 for dnum=1:numel(data_num)
 
     for iter=1:data_num(dnum)

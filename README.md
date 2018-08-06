@@ -1,4 +1,7 @@
-# undeepvo_test
+# unoffical implementation of undeepvo
+
+0. Prepare dataset
+run generate_train.m with matlab 
 
 1. Activate tensorflow
 source ~/tensorflow/bin/activate 
