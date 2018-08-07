@@ -10,7 +10,7 @@ source ~/tensorflow/bin/activate
 python undeepvo_main.py --mode train --model_name my_model --data_path /media/youngji/storagedevice/naver_data/kitti_odometry/dataset/ --filenames_file ./utils/filenames/kitti_train_files2.txt --log_directory ./tmp/
 
 3. visualization
-tensorboard --logdir=./tmp/mymodel/
+tensorboard --logdir=./tmp/my_model
  
 4. Testing
 python monodepth_main.py --mode test --data_path /media/youngji/storagedevice/naver_data/kitti_odometry/dataset/ \

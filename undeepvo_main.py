@@ -35,10 +35,10 @@ parser.add_argument('--batch_size',                type=int,   help='batch size'
 parser.add_argument('--num_epochs',                type=int,   help='number of epochs', default=50)
 parser.add_argument('--learning_rate',             type=float, help='initial learning rate', default=1e-4)
 parser.add_argument('--image_loss_weight',         type=float, help='image loss weight', default=0.1)
-parser.add_argument('--disp_loss_weight',          type=float, help='disparity loss weight', default=1.0)
-parser.add_argument('--pose_loss_weight',          type=float, help='pose loss weight', default=0.0)
+parser.add_argument('--disp_loss_weight',          type=float, help='disparity loss weight', default=100.0)
+parser.add_argument('--pose_loss_weight',          type=float, help='pose loss weight', default=100.0)
 parser.add_argument('--gradient_loss_weight',      type=float, help='gradient loss weight', default=1.0)
-parser.add_argument('--temporal_loss_weight',      type=float, help='temporal loss weight', default=0.1)
+parser.add_argument('--temporal_loss_weight',      type=float, help='temporal loss weight', default=0.3)
 parser.add_argument('--alpha_image_loss',          type=float, help='weight between SSIM and L1 in the image loss', default=0.5)
 parser.add_argument('--wrap_mode',                 type=str,   help='bilinear sampler wrap mode, edge or border', default='border')
 parser.add_argument('--use_deconv',                            help='if set, will use transposed convolutions', action='store_true')
@@ -79,6 +79,7 @@ def train(params):
         num_training_samples = count_text_lines(args.filenames_file)
 
         steps_per_epoch = np.ceil(num_training_samples / params.batch_size).astype(np.int32)
+        print( steps_per_epoch )
         num_total_steps = params.num_epochs * steps_per_epoch
         start_learning_rate = args.learning_rate
 
