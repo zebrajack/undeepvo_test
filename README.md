@@ -16,3 +16,5 @@ tensorboard --logdir=./tmp/my_model
 python monodepth_main.py --mode test --data_path /media/youngji/storagedevice/naver_data/kitti_odometry/dataset/ \
 --filenames_file ./utils/filenames/kitti_train_files2.txt --log_directory ./tmp/ \
 --checkpoint_path ./tmp/my_model/model-181250
+
+python undeepvo_test.py --checkpoint_path ./tmp/my_model3/model-30000
