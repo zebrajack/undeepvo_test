@@ -1,4 +1,4 @@
-# unoffical implementation of undeepvo
+non-offical implementation of undeepvo
 
 0. Prepare dataset
 run generate_train.m with matlab 
