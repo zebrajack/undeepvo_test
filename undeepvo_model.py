@@ -15,13 +15,10 @@ from projective_transformer_inv import *
 
 undeepvo_parameters = namedtuple('parameters',
                         'height, width, '
-                        'resize_ratio, '
-                        'baseline, focal_length, c0, c1, '
+                        'baseline, ' 
                         'batch_size, '
                         'num_threads, '
                         'num_epochs, '
-                        'wrap_mode, '
-                        'use_deconv, '
                         'alpha_image_loss, '
                         'image_loss_weight, disp_loss_weight, pose_loss_weight, gradient_loss_weight, temporal_loss_weight, '
                         'full_summary')

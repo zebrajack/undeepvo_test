@@ -24,15 +24,13 @@ parser.add_argument('--model_name',                type=str,   help='model name'
 parser.add_argument('--dataset',                   type=str,   help='dataset to train on, kitti, or cityscapes', default='kitti')
 parser.add_argument('--data_path',                 type=str,   help='path to the data', required=True)
 parser.add_argument('--filenames_file',            type=str,   help='path to the filenames text file', required=True)
+
 parser.add_argument('--input_height',              type=int,   help='input height', default=256)
 parser.add_argument('--input_width',               type=int,   help='input width', default=512)
-parser.add_argument('--resize_ratio',              type=float, help='resize ratio', default=0.5)
 parser.add_argument('--baseline',                  type=float, help='stereo baseline', default=0.54)
-parser.add_argument('--focal_length',              type=float, help='focal length', default=718.856)
-parser.add_argument('--c0',                        type=float, help='principal point 0', default=607.1928)
-parser.add_argument('--c1',                        type=float, help='principal point 1', default=185.2157)
+
 parser.add_argument('--batch_size',                type=int,   help='batch size', default=8)
-parser.add_argument('--num_epochs',                type=int,   help='number of epochs', default=50)
+parser.add_argument('--num_epochs',                type=int,   help='number of epochs', default=20)
 parser.add_argument('--learning_rate',             type=float, help='initial learning rate', default=1e-4)
 parser.add_argument('--image_loss_weight',         type=float, help='image loss weight', default=1.0)
 parser.add_argument('--disp_loss_weight',          type=float, help='disparity loss weight', default=100.0)
@@ -40,8 +38,6 @@ parser.add_argument('--pose_loss_weight',          type=float, help='pose loss w
 parser.add_argument('--gradient_loss_weight',      type=float, help='gradient loss weight', default=100.0)
 parser.add_argument('--temporal_loss_weight',      type=float, help='temporal loss weight', default=1.0)
 parser.add_argument('--alpha_image_loss',          type=float, help='weight between SSIM and L1 in the image loss', default=0.5)
-parser.add_argument('--wrap_mode',                 type=str,   help='bilinear sampler wrap mode, edge or border', default='border')
-parser.add_argument('--use_deconv',                            help='if set, will use transposed convolutions', action='store_true')
 parser.add_argument('--num_gpus',                  type=int,   help='number of GPUs to use for training', default=1)
 parser.add_argument('--num_threads',               type=int,   help='number of threads to use for data loading', default=8)
 parser.add_argument('--output_directory',          type=str,   help='output directory for test disparities, if empty outputs to checkpoint folder', default='')
@@ -237,16 +233,10 @@ def main(_):
     params = undeepvo_parameters(
         height=args.input_height,
         width=args.input_width,
-        resize_ratio=args.resize_ratio,
         baseline=args.baseline,
-        focal_length=args.focal_length,
-        c0=args.c0,
-        c1=args.c1,
         batch_size=args.batch_size,
         num_threads=args.num_threads,
         num_epochs=args.num_epochs,
-        wrap_mode=args.wrap_mode,
-        use_deconv=args.use_deconv,
         alpha_image_loss=args.alpha_image_loss,
         image_loss_weight = args.image_loss_weight,
         disp_loss_weight = args.disp_loss_weight,
