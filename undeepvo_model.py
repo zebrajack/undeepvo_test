@@ -181,7 +181,7 @@ class UndeepvoModel(object):
 
     def get_depth(self, x):
         depth = self.conv(x, 1, 3, 1, activation='sigmoid')
-        depth = Lambda(lambda x: 100.0 * x)(depth)
+        depth = Lambda(lambda x: 30.0 * x)(depth)
         return depth
 
     @staticmethod

@@ -64,7 +64,7 @@ class undeepvo:
         self.cparams[0,3] = 7.070912000000e+02
         self.cparams[0,4] = 6.018873000000e+02
         self.cparams[0,5] = 1.831104000000e+02
-        self.cparams[0,6] = 0.54
+        self.cparams[0,6] = 0.537166
 
         '''Initialize network for the VO estimation'''
         params = undeepvo_parameters(
@@ -151,11 +151,13 @@ class undeepvo:
         """Test function."""
         [disp, tran, rot] = self.sess.run([self.model.depthmap_left[0], self.model.translation_left, self.model.rotation_left], feed_dict={self.left: self.img_left, self.right: self.img_right, self.left_next: self.img_left_next, self.right_next: self.img_right_next, self.cam_params: self.cparams})
 
-        #Publish Depth Image        
+        #Publish Depth Image
+        disp = disp.squeeze()
+#        print(np.amin(disp))    
         disp_to_img = scipy.misc.imresize(disp.squeeze(), [args.input_height, args.input_width])
-#        cv2.imshow("disp_to_img", disp_to_img)
-#        cv2.waitKey(3)
-        self.image_pub.publish(self.bridge.cv2_to_imgmsg(disp_to_img, "mono8"))
+        cv2.imshow("disp_to_img", disp_to_img)
+        cv2.waitKey(3)
+        self.image_pub.publish(self.bridge.cv2_to_imgmsg(disp, "32FC1"))
 
         #Publish R and t
         tran = tran.squeeze()
@@ -174,7 +176,7 @@ def main(_):
 
     #init rospy
     rospy.init_node('undeepvo', anonymous=True)
-    rate = rospy.Rate(100) # 10hz
+    rate = rospy.Rate(100) # 100hz
 
     ic = undeepvo()
     while not rospy.is_shutdown():
