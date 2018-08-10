@@ -4,9 +4,9 @@
 % right_focal_length, right_c0, right_c1
 % base_line, width, height 
 
-data_num = [4540,1100,4660];
-image_dims = [376, 376, 376;
-              1241, 1241, 1241];
+data_num = [4540,1100,4660, 800, 270, 2760, 1100, 1100, 4070];
+image_dims = [376, 376, 376, 375, 370, 370, 370 ,370, 370;
+              1241, 1241, 1241, 1242, 1226, 1226, 1226, 1226, 1226];
 
 left_focal_length = zeros(1,numel(data_num));
 right_focal_length = zeros(1,numel(data_num));

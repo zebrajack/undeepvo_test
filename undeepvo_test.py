@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import roslib
 import sys
 import rospy
+import tf as ros_tf
 import cv2
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
@@ -56,6 +57,14 @@ class undeepvo:
         self.is_left_in  = False
         self.is_right_in = False
         self.is_start = False
+        self.cparams = np.zeros([1,9])
+        self.cparams[0,0] = 7.070912000000e+02
+        self.cparams[0,1] = 6.018873000000e+02
+        self.cparams[0,2] = 1.831104000000e+02
+        self.cparams[0,3] = 7.070912000000e+02
+        self.cparams[0,4] = 6.018873000000e+02
+        self.cparams[0,5] = 1.831104000000e+02
+        self.cparams[0,6] = 0.54
 
         '''Initialize network for the VO estimation'''
         params = undeepvo_parameters(
@@ -99,14 +108,7 @@ class undeepvo:
         cv2.waitKey(3)
 
         original_height, original_width, num_channels = input_image.shape
-        self.cparams = np.zeros([1,9])
-        self.cparams[0,0] = 7.070912000000e+02
-        self.cparams[0,1] = 6.018873000000e+02
-        self.cparams[0,2] = 1.831104000000e+02
-        self.cparams[0,3] = 7.070912000000e+02
-        self.cparams[0,4] = 6.018873000000e+02
-        self.cparams[0,5] = 1.831104000000e+02
-        self.cparams[0,6] = 0.54
+
         self.cparams[0,7] = args.input_height/original_height
         self.cparams[0,8] = args.input_width/original_width
 
@@ -140,7 +142,6 @@ class undeepvo:
 
     def test_simple(self):
         """Test function."""
-#        disp = self.sess.run(self.model.depthmap_left[0], feed_dict={self.left: self.img_left, self.right: self.img_right, self.left_next: self.img_left_next, self.right_next: self.img_right_next, self.cam_params: self.cparams})
         [disp, tran, rot] = self.sess.run([self.model.depthmap_left[0], self.model.translation_left, self.model.rotation_left], feed_dict={self.left: self.img_left, self.right: self.img_right, self.left_next: self.img_left_next, self.right_next: self.img_right_next, self.cam_params: self.cparams})
 #        disp_pp = post_process_disparity(disp.squeeze()).astype(np.float32)
 
@@ -148,8 +149,18 @@ class undeepvo:
 #        cv2.waitKey(3)
 #        
 #        self.image_pub.publish(self.bridge.cv2_to_imgmsg(disp, "mono8"))
-        print(tran.astype(np.float32))
-        print(rot.astype(np.float32))
+
+
+        tran = tran.squeeze()
+        rot  = rot.squeeze()
+        print(tran,rot)
+        br = ros_tf.TransformBroadcaster()
+        br.sendTransform(tran,
+                         ros_tf.transformations.quaternion_from_euler(rot[0],rot[1],rot[2]),
+                         rospy.Time.now(),
+                         "/undeepvo/Current",
+                         "/undeepvo/World")
+
 
 def main(_):
 
