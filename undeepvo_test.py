@@ -48,7 +48,7 @@ class undeepvo:
     def __init__(self):
 
         '''Initialize ros publisher, ros subscriber'''
-        self.image_pub = rospy.Publisher("/monodepth/image",Image,queue_size=10)
+        self.image_pub = rospy.Publisher("/undeepvo/image",Image,queue_size=10)
         self.bridge = CvBridge()
         self.image_sub_left = rospy.Subscriber("/kitti/left_color_image",Image,self.callback_left)    
         self.image_sub_right = rospy.Subscriber("/kitti/right_color_image",Image,self.callback_right)
@@ -102,10 +102,17 @@ class undeepvo:
         restore_path = args.checkpoint_path.split(".")[0]
         train_saver.restore(self.sess, args.checkpoint_path)
 
+        br = ros_tf.TransformBroadcaster()
+        br.sendTransform((0,0,0),
+                         ros_tf.transformations.quaternion_from_euler(0,0,0),
+                         rospy.Time.now(),
+                         "/undeepvo/Current",
+                         "/undeepvo/World")
+
     def callback_left(self,data):
         input_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
-        cv2.imshow("Image window", input_image)
-        cv2.waitKey(3)
+#        cv2.imshow("Image window", input_image)
+#        cv2.waitKey(3)
 
         original_height, original_width, num_channels = input_image.shape
 
@@ -143,17 +150,17 @@ class undeepvo:
     def test_simple(self):
         """Test function."""
         [disp, tran, rot] = self.sess.run([self.model.depthmap_left[0], self.model.translation_left, self.model.rotation_left], feed_dict={self.left: self.img_left, self.right: self.img_right, self.left_next: self.img_left_next, self.right_next: self.img_right_next, self.cam_params: self.cparams})
-#        disp_pp = post_process_disparity(disp.squeeze()).astype(np.float32)
 
-#        cv2.imshow("disp_to_img", disp)
+        #Publish Depth Image        
+        disp_to_img = scipy.misc.imresize(disp.squeeze(), [args.input_height, args.input_width])
+#        cv2.imshow("disp_to_img", disp_to_img)
 #        cv2.waitKey(3)
-#        
-#        self.image_pub.publish(self.bridge.cv2_to_imgmsg(disp, "mono8"))
+        self.image_pub.publish(self.bridge.cv2_to_imgmsg(disp_to_img, "mono8"))
 
-
+        #Publish R and t
         tran = tran.squeeze()
         rot  = rot.squeeze()
-        print(tran,rot)
+#        print(tran,rot)
         br = ros_tf.TransformBroadcaster()
         br.sendTransform(tran,
                          ros_tf.transformations.quaternion_from_euler(rot[0],rot[1],rot[2]),
@@ -164,12 +171,12 @@ class undeepvo:
 
 def main(_):
 
-    ic = undeepvo()
 
     #init rospy
     rospy.init_node('undeepvo', anonymous=True)
-    rate = rospy.Rate(10) # 10hz
+    rate = rospy.Rate(100) # 10hz
 
+    ic = undeepvo()
     while not rospy.is_shutdown():
         ic.refresh()
         rate.sleep()
