@@ -141,9 +141,9 @@ def projective_transformer(input_images, f0, f1, c0, c1, depthmap, rotation, tra
             x_unproject = Lambda(lambda x: x[1]*(x[0]-x[3])/x[2], output_shape=_output_shape)([x_t_flat, depthmap_flat, f0, c0])
             y_unproject = Lambda(lambda x: x[1]*(x[0]-x[3])/x[2], output_shape=_output_shape)([y_t_flat, depthmap_flat, f1, c1])
             
-            x_unproject = tf.reshape(x_unproject,[8,-1])
-            y_unproject = tf.reshape(y_unproject,[8,-1])
-            z_unproject = tf.reshape(depthmap_flat,[8,-1])
+            x_unproject = tf.reshape(x_unproject,[_num_batch,-1])
+            y_unproject = tf.reshape(y_unproject,[_num_batch,-1])
+            z_unproject = tf.reshape(depthmap_flat,[_num_batch,-1])
             
             xyz = tf.stack([x_unproject,y_unproject,z_unproject], axis=1)
 
